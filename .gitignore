@@ -1,0 +1,24 @@
+# Dependências
+node_modules/
+__pycache__/
+*.pyc
+
+# Ambiente
+.env
+.deps_ok
+
+# Build
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Locks (opcional, descomente se quiser incluir)
+# package-lock.json
+# bun.lock
