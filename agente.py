@@ -5,6 +5,7 @@ import logging
 import random
 import re
 import os
+import difflib
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from google import genai
@@ -97,8 +98,8 @@ class AssistenteIA:
                                        'quero marcar', 'quero agendar', 'reservar']
         self.intencoes_servicos   = ['serviço', 'servico', 'serviços', 'preço',
                                       'valor', 'quanto custa', 'tabela']
-        self.intencoes_login      = ['login', 'entrar', 'logar', 'minha conta']
-        self.intencoes_cadastro   = ['cadastrar', 'cadastro', 'criar conta', 'nova conta', 'registrar', 'me cadastrar']
+        self.intencoes_login      = ['login', 'entrar', 'logar', 'minha conta', 'ja tenho conta', 'já tenho conta']
+        self.intencoes_cadastro   = ['cadastrar', 'cadastro', 'criar conta', 'nova conta', 'registrar', 'me cadastrar', 'quero me cadastrar', 'sou nova', 'primeira vez']
 
         # Respostas predefinidas — usadas como fallback se o Gemini falhar
         self.respostas_predefinidas = {
@@ -210,6 +211,76 @@ def gerar_datas_disponiveis():
 def gerar_horarios_disponiveis(data, manicure, servico):
     # Simplificado — pode ser expandido para consultar horários ocupados no Supabase
     return ["09:00", "10:30", "12:00", "14:00", "15:30", "17:00"]
+
+# ---------------------------------------------------------------------------
+# COMPREENSÃO FLEXÍVEL — apelidos, erros de digitação, fuzzy match
+# ---------------------------------------------------------------------------
+APELIDOS_SERVICO = {
+    'mao': 'manicure', 'mão': 'manicure', 'fazer a mao': 'manicure',
+    'faze a mao': 'manicure', 'fazê a mão': 'manicure',
+    'unha da mao': 'manicure', 'unhia': 'manicure', 'unhas mao': 'manicure',
+    'mani': 'manicure', 'manicuri': 'manicure', 'maniqure': 'manicure',
+    'pe': 'pedicure', 'pé': 'pedicure', 'fazer o pe': 'pedicure',
+    'faze o pe': 'pedicure', 'unha do pe': 'pedicure', 'pediqure': 'pedicure',
+    'pedi': 'pedicure', 'pes': 'pedicure', 'pés': 'pedicure',
+    'spa': 'spa dos pés', 'spa pe': 'spa dos pés', 'spa pes': 'spa dos pés',
+    'relaxar': 'spa dos pés', 'hidratacao': 'spa dos pés',
+    'gel': 'esmaltação em gel', 'esmalte gel': 'esmaltação em gel',
+    'gelzinho': 'esmaltação em gel', 'esmalte': 'esmaltação em gel',
+    'alongar': 'alongamento', 'alonga': 'alongamento', 'alongar unha': 'alongamento',
+    'fibra': 'fibra de vidro', 'fibra vidro': 'fibra de vidro',
+    'francesa': 'francesinha', 'franceza': 'francesinha', 'francesina': 'francesinha',
+    'decorar': 'decoração', 'arte': 'decoração', 'nail art': 'decoração',
+    'desenho': 'decoração', 'decoracao': 'decoração',
+}
+
+def encontrar_servico_por_texto(texto, servicos):
+    """Encontra serviço por nome, apelido ou fuzzy match."""
+    texto_lower = texto.lower().strip()
+    # 1. Apelido direto
+    if texto_lower in APELIDOS_SERVICO:
+        alvo = APELIDOS_SERVICO[texto_lower]
+        for s in servicos:
+            if alvo in s['nome'].lower():
+                return s
+    # 2. Match parcial no nome
+    for s in servicos:
+        if texto_lower in s['nome'].lower() or s['nome'].lower() in texto_lower:
+            return s
+    # 3. Fuzzy match
+    nomes = [s['nome'].lower() for s in servicos]
+    matches = difflib.get_close_matches(texto_lower, nomes, n=1, cutoff=0.45)
+    if matches:
+        for s in servicos:
+            if s['nome'].lower() == matches[0]:
+                return s
+    return None
+
+def encontrar_manicure_por_texto(texto, manicures):
+    """Encontra profissional por nome ou fuzzy match."""
+    texto_lower = texto.lower().strip()
+    for m in manicures:
+        if texto_lower in m['nome'].lower() or m['nome'].lower() in texto_lower:
+            return m
+    nomes = [m['nome'].lower() for m in manicures]
+    matches = difflib.get_close_matches(texto_lower, nomes, n=1, cutoff=0.45)
+    if matches:
+        for m in manicures:
+            if m['nome'].lower() == matches[0]:
+                return m
+    return None
+
+def gerar_pix_copia_cola(valor, nome_servico):
+    """Gera um código PIX copia-e-cola simulado."""
+    # Código EMV simulado para demonstração
+    chave = "pix@linoesmalteria.com.br"
+    valor_str = f"{valor:.2f}"
+    return (
+        f"00020126580014br.gov.bcb.pix0136{chave}"
+        f"5204000053039865404{valor_str}5802BR"
+        f"5925LINO ESMALTERIA LTDA6009SAO PAULO"
+        f"62070503***6304A1B2"
+    )
 
 def obter_servicos():
     if SUPABASE_DISPONIVEL:
@@ -328,6 +399,9 @@ class MotorDialogo:
             elif sessao.estado_fluxo == "agendamento_confirmacao":
                 resposta_texto = self._proc_agendamento_confirmacao(sessao, mensagem)
 
+            elif sessao.estado_fluxo == "agendamento_pagamento":
+                resposta_texto = self._proc_agendamento_pagamento(sessao, mensagem)
+
             else:
                 # ---------------------------------------------------------------
                 # Sem estado ativo — detecta intenção ou passa ao Gemini
@@ -345,16 +419,33 @@ class MotorDialogo:
                     resposta_texto = self._iniciar_cadastro(sessao)
 
                 elif any(p in mensagem_lower for p in ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'hello']):
-                    resposta_texto = assistente_ia.gerar_resposta(
-                        mensagem, contexto="saudacao", cliente=sessao.cliente)
+                    if sessao.cliente:
+                        resposta_texto = assistente_ia.gerar_resposta(
+                            mensagem, contexto="saudacao", cliente=sessao.cliente)
+                    else:
+                        resposta_texto = (
+                            "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\n"
+                            "Pra eu te atender melhor, me conta: você já tem cadastro aqui com a gente?\n\n"
+                            "✅ Se sim, me fala **login**\n"
+                            "🆕 Se é sua primeira vez, me fala **cadastrar**\n\n"
+                            "Ou se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅"
+                        )
 
                 elif any(p in mensagem_lower for p in ['obrigad']):
                     resposta_texto = assistente_ia.gerar_resposta(
                         mensagem, contexto="agradecimento", cliente=sessao.cliente)
 
-                elif any(p in mensagem_lower for p in ['tchau', 'bye', 'sair', 'até logo']):
+                elif any(p in mensagem_lower for p in ['tchau', 'bye', 'até logo']):
                     resposta_texto = assistente_ia.gerar_resposta(
                         mensagem, contexto="despedida", cliente=sessao.cliente)
+
+                elif mensagem_lower in ['sim', 's', 'não', 'nao', 'n', 'no']:
+                    # Respostas soltas de sim/não fora de fluxo
+                    resposta_texto = (
+                        "Hmm, não entendi muito bem 😅\n\n"
+                        "Me fala o que você precisa — posso te ajudar com **serviços**, **agendar** um horário, "
+                        "ou fazer seu **cadastro**! 💅"
+                    )
 
                 else:
                     # Gemini responde livremente dentro dos limites do system prompt
@@ -399,13 +490,23 @@ class MotorDialogo:
                 f"Achei! Oi, *{cliente['nome']}*! Que bom te ver de volta 😊\n"
                 f"Me fala o que você precisa — posso te mostrar nossos **serviços** ou te ajudar a **agendar** um horário!"
             )
+        # Não encontrou — oferece cadastro diretamente
         sessao.estado_fluxo = None
-        return "Não encontrei ninguém com esse contato 😔 Se você ainda não tem conta, é só me falar **cadastrar** que eu te ajudo!"
+        return (
+            "Hmm, não encontrei ninguém com esse contato 😔\n\n"
+            "Mas não se preocupa! Posso te cadastrar rapidinho agora mesmo 😊\n"
+            "É só me falar **cadastrar** que a gente resolve em 1 minutinho!"
+        )
 
     # --- AGENDAMENTO: PASSO 1 — Data ---
     def _iniciar_agendamento(self, sessao):
         if not sessao.cliente:
-            return "Antes de agendar, preciso saber quem você é! Me fala **login** pra entrar na sua conta ou **cadastrar** se for sua primeira vez aqui 😊"
+            return (
+                "Pra eu marcar seu horário, preciso te conhecer primeiro! 😊\n\n"
+                "Você prefere entrar na sua conta ou criar um perfil rapidinho?\n\n"
+                "✅ Me fala **login** se já tem conta\n"
+                "🆕 Ou **cadastrar** pra criar agora — leva menos de 1 minuto!"
+            )
         datas = gerar_datas_disponiveis()[:5]
         sessao.dados_agendamento = {'lista_datas': datas}
         sessao.estado_fluxo = "agendamento_data"
@@ -429,70 +530,128 @@ class MotorDialogo:
             return resp
         return "Não entendi 😅 Me manda só o número da data que você prefere, tá?"
 
-    # --- AGENDAMENTO: PASSO 3 — Profissional ---
+    # --- AGENDAMENTO: PASSO 2 — Serviço (aceita número OU texto/apelido) ---
     def _proc_agendamento_servico(self, sessao, mensagem):
         servs = sessao.dados_agendamento.get('lista_servicos', [])
-        if mensagem.isdigit() and 1 <= int(mensagem) <= len(servs):
-            sessao.dados_agendamento['servico'] = servs[int(mensagem) - 1]
+        servico_escolhido = None
+        msg = mensagem.strip()
+
+        # Tenta por número
+        if msg.isdigit() and 1 <= int(msg) <= len(servs):
+            servico_escolhido = servs[int(msg) - 1]
+        else:
+            # Tenta por texto / fuzzy match
+            servico_escolhido = encontrar_servico_por_texto(msg, servs)
+
+        if servico_escolhido:
+            sessao.dados_agendamento['servico'] = servico_escolhido
             sessao.estado_fluxo = "agendamento_manicure"
             manicures = obter_manicures()
             sessao.dados_agendamento['lista_manicures'] = manicures
-            resp = f"Ótima escolha! 💅 E com qual profissional você prefere?\n\n"
+            resp = f"Ótima escolha, *{servico_escolhido['nome']}*! 💅\n\nAgora me fala, com qual das nossas profissionais você gostaria de ser atendida?\n\n"
             for i, m in enumerate(manicures, 1):
                 resp += f"{i} - {m['nome']}\n"
+            resp += "\nPode me mandar o número ou o nome dela 😊"
             return resp
-        return "Hmm, não achei esse número 🤔 Me manda o número do serviço que você quer, por favor!"
+        return (
+            "Hmm, não encontrei esse serviço 🤔\n\n"
+            "Pode me mandar o **número** da lista ou o **nome** do serviço que você quer?\n"
+            "Aceito até apelido, tipo \"mão\", \"pé\", \"gel\"... 😉"
+        )
 
-    # --- AGENDAMENTO: PASSO 4 — Horário ---
+    # --- AGENDAMENTO: PASSO 3 — Profissional (aceita número OU nome) ---
     def _proc_agendamento_manicure(self, sessao, mensagem):
         manicures = sessao.dados_agendamento.get('lista_manicures', [])
-        if mensagem.isdigit() and 1 <= int(mensagem) <= len(manicures):
-            sessao.dados_agendamento['manicure'] = manicures[int(mensagem) - 1]
+        manicure_escolhida = None
+        msg = mensagem.strip()
+
+        if msg.isdigit() and 1 <= int(msg) <= len(manicures):
+            manicure_escolhida = manicures[int(msg) - 1]
+        else:
+            manicure_escolhida = encontrar_manicure_por_texto(msg, manicures)
+
+        if manicure_escolhida:
+            sessao.dados_agendamento['manicure'] = manicure_escolhida
             sessao.estado_fluxo = "agendamento_horario"
             horarios = gerar_horarios_disponiveis(
                 sessao.dados_agendamento['data'],
-                sessao.dados_agendamento['manicure'],
+                manicure_escolhida,
                 sessao.dados_agendamento['servico'],
             )
             sessao.dados_agendamento['lista_horarios'] = horarios
-            resp = f"Boa, a {sessao.dados_agendamento['manicure']['nome']} é ótima! 😊 Agora só falta escolher o horário:\n\n"
+            resp = f"Boa, a *{manicure_escolhida['nome']}* é maravilhosa! 😊\n\nAgora escolhe o melhor horário pra você:\n\n"
             for i, h in enumerate(horarios, 1):
                 resp += f"{i} - {h}\n"
             return resp
-        return "Não achei essa opção 😅 Me manda o número da profissional, por favor!"
+        return "Não encontrei essa profissional 😅 Me manda o número ou o nome dela, por favor!"
 
-    # --- AGENDAMENTO: PASSO 5 — Confirmação ---
+    # --- AGENDAMENTO: PASSO 4 — Horário ---
     def _proc_agendamento_horario(self, sessao, mensagem):
         horarios = sessao.dados_agendamento.get('lista_horarios', [])
-        if mensagem.isdigit() and 1 <= int(mensagem) <= len(horarios):
-            sessao.dados_agendamento['horario'] = horarios[int(mensagem) - 1]
+        if mensagem.strip().isdigit() and 1 <= int(mensagem.strip()) <= len(horarios):
+            sessao.dados_agendamento['horario'] = horarios[int(mensagem.strip()) - 1]
             sessao.estado_fluxo = "agendamento_confirmacao"
             d = sessao.dados_agendamento
+            preco = d['servico']['preco']
+            sinal = preco * 0.4
+            sessao.dados_agendamento['sinal'] = sinal
             return (
-                f"Pronto, deixa eu confirmar tudo com você 😊\n\n"
-                f"📅 Dia: {d['data']}\n"
-                f"🕐 Às: {d['horario']}\n"
-                f"💅 Serviço: {d['servico']['nome']} (R$ {d['servico']['preco']:.2f})\n"
-                f"👩 Com: {d['manicure']['nome']}\n\n"
-                f"Tá tudo certo? Me fala **sim** pra confirmar ou **não** se quiser mudar algo!"
+                f"Perfeito! Olha o resumo do seu agendamento 😊\n\n"
+                f"📅 Dia: *{d['data']}*\n"
+                f"🕐 Horário: *{d['horario']}*\n"
+                f"💅 Serviço: *{d['servico']['nome']}* (R$ {preco:.2f})\n"
+                f"👩 Profissional: *{d['manicure']['nome']}*\n\n"
+                f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
+                f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
             )
-        return "Ops, esse número não tá na lista 😅 Me manda o número do horário que você quer!"
+        return "Ops, esse número não tá na lista 😅 Me manda o número do horário que você prefere!"
 
-    # --- AGENDAMENTO: PASSO 6 — Salva no Supabase ---
+    # --- AGENDAMENTO: PASSO 5 — Confirmação → Gera PIX ---
     def _proc_agendamento_confirmacao(self, sessao, mensagem):
-        if mensagem.strip().lower() in ['sim', 's', 'yes']:
+        if mensagem.strip().lower() in ['sim', 's', 'yes', 'confirmar']:
+            d = sessao.dados_agendamento
+            sinal = d.get('sinal', d['servico']['preco'] * 0.4)
+            pix_code = gerar_pix_copia_cola(sinal, d['servico']['nome'])
+            sessao.dados_agendamento['pix_code'] = pix_code
+            sessao.estado_fluxo = "agendamento_pagamento"
+            return (
+                f"Ótimo! Para garantir seu horário, é só fazer o PIX do sinal de **R$ {sinal:.2f}** 💳\n\n"
+                f"Aqui tá o QR Code e o código pra copiar:\n\n"
+                f"{{{{PIX:{pix_code}}}}}\n\n"
+                f"Depois que fizer o pagamento, me fala **pago** que eu confirmo tudo pra você! 😊\n\n"
+                f"Se quiser cancelar, é só falar **cancelar**."
+            )
+        else:
+            sessao.dados_agendamento = {}
+            sessao.estado_fluxo = None
+            return "Sem problema, cancelei! Quando quiser tentar de novo, é só me falar **agendar** 💖"
+
+    # --- AGENDAMENTO: PASSO 6 — Aguarda pagamento → Salva ---
+    def _proc_agendamento_pagamento(self, sessao, mensagem):
+        msg = mensagem.strip().lower()
+        if msg in ['pago', 'paguei', 'fiz o pix', 'pix feito', 'transferi', 'pronto', 'feito', 'já paguei', 'ja paguei']:
             resultado = self._salvar_agendamento(sessao)
             sessao.dados_agendamento = {}
             sessao.estado_fluxo = None
             return resultado
-        else:
+        elif msg in ['cancelar', 'cancel', 'voltar', 'desistir']:
             sessao.dados_agendamento = {}
             sessao.estado_fluxo = None
-            return "Tudo bem, cancelei o agendamento! Quando quiser tentar de novo, é só me falar 💖"
+            return "Tudo bem, cancelei o agendamento! Quando quiser tentar de novo, é só me chamar 💖"
+        else:
+            d = sessao.dados_agendamento
+            sinal = d.get('sinal', 0)
+            return (
+                f"Estou aguardando a confirmação do seu PIX de **R$ {sinal:.2f}** 😊\n\n"
+                f"Quando fizer o pagamento, me fala **pago** que eu confirmo tudo!\n"
+                f"Se precisar do código de novo, aqui está:\n\n"
+                f"{{{{PIX:{d.get('pix_code', '')}}}}}"
+            )
 
     def _salvar_agendamento(self, sessao):
-        """Salva o agendamento confirmado no Supabase."""
+        """Salva o agendamento confirmado no Supabase com o sinal."""
         d = sessao.dados_agendamento
+        sinal = d.get('sinal', d['servico']['preco'] * 0.4)
         try:
             if SUPABASE_DISPONIVEL:
                 supabase.table('agendamentos').insert({
@@ -502,12 +661,14 @@ class MotorDialogo:
                     'data':        d['data'],
                     'horario':     d['horario'],
                     'status':      'confirmado',
+                    'sinal_pago':  sinal,
                     'criado_em':   datetime.datetime.now().isoformat(),
                 }).execute()
             return (
-                f"Marcado! ✨\n\n"
-                f"📅 {d['data']} às {d['horario']}\n"
-                f"💅 {d['servico']['nome']} com a {d['manicure']['nome']}\n\n"
+                f"Pagamento recebido e agendamento confirmado! ✨\n\n"
+                f"📅 *{d['data']}* às *{d['horario']}*\n"
+                f"💅 *{d['servico']['nome']}* com a *{d['manicure']['nome']}*\n"
+                f"💰 Sinal pago: R$ {sinal:.2f}\n\n"
                 f"Vamos te esperar, viu? Qualquer coisa é só chamar! 💖"
             )
         except Exception as e:
@@ -525,8 +686,9 @@ class MotorDialogo:
         sessao.dados_cadastro = {}
         sessao.estado_fluxo = "cadastro_nome"
         return (
-            "Que legal, vamos criar sua conta! 🎉\n\n"
-            "Pra começar, me fala seu **nome completo**?"
+            "Que legal que você quer fazer parte da Lino Esmalteria! 🎉\n\n"
+            "É rapidinho, vou te pedir só algumas informações, tá?\n\n"
+            "Pra começar, qual é o seu **nome completo**?"
         )
 
     def _proc_cadastro_nome(self, sessao, mensagem):
@@ -535,7 +697,7 @@ class MotorDialogo:
             return "Hmm, acho que faltou algo 😅 Me manda seu nome completo, por favor!"
         sessao.dados_cadastro['nome'] = nome
         sessao.estado_fluxo = "cadastro_email"
-        return f"Prazer, *{nome}*! 😊\n\nAgora me passa seu **e-mail**, por favor?"
+        return f"Muito prazer, *{nome}*! Que bom te conhecer 😊\n\nAgora me passa seu **e-mail** pra eu salvar aqui, por favor?"
 
     def _proc_cadastro_email(self, sessao, mensagem):
         email = mensagem.strip().lower()
@@ -553,8 +715,9 @@ class MotorDialogo:
         sessao.dados_cadastro['email'] = email
         sessao.estado_fluxo = "cadastro_celular"
         return (
-            "Beleza! E seu **celular** com DDD? (tipo 11999999999)\n\n"
-            "Se preferir não informar agora, pode falar **pular** 😉"
+            "Perfeito, anotei! ✅\n\n"
+            "Agora, se puder me passar seu **celular** com DDD fica ótimo! (tipo 11999999999)\n\n"
+            "Se preferir não informar agora, sem problema — é só falar **pular** 😉"
         )
 
     def _proc_cadastro_celular(self, sessao, mensagem):
@@ -600,28 +763,40 @@ class MotorDialogo:
     def _salvar_cadastro(self, sessao):
         """Salva o novo cliente no Supabase e faz login automático."""
         d = sessao.dados_cadastro
+        dados_insert = {
+            'nome':    d['nome'],
+            'email':   d['email'],
+            'ativo':   True,
+        }
+        if d.get('celular'):
+            dados_insert['celular'] = d['celular']
         try:
             if SUPABASE_DISPONIVEL:
-                res = supabase.table('clientes').insert({
-                    'nome':    d['nome'],
-                    'email':   d['email'],
-                    'celular': d.get('celular'),
-                    'ativo':   True,
-                }).execute()
+                logger.info(f"Tentando cadastrar cliente: {dados_insert}")
+                res = supabase.table('clientes').insert(dados_insert).execute()
+                logger.info(f"Resposta do Supabase: {res}")
                 if res.data:
                     sessao.cliente = res.data[0]
                     logger.info(f"Novo cliente cadastrado: {res.data[0].get('id')} — {d['nome']}")
+                else:
+                    logger.warning(f"Insert retornou sem dados: {res}")
+                    sessao.cliente = {'id': 0, 'nome': d['nome'], 'email': d['email'], 'celular': d.get('celular')}
             else:
                 # Modo demo — simula login sem persistência
                 sessao.cliente = {'id': 999, 'nome': d['nome'], 'email': d['email'], 'celular': d.get('celular')}
             return (
-                f"Pronto, tudo certo! Bem-vinda, *{d['nome']}*! 🎉\n\n"
-                f"Você já tá logada! Se quiser marcar um horário, me fala **agendar**, "
-                f"ou posso te mostrar nossos **serviços** também! 💅"
+                f"Pronto, sua conta foi criada com sucesso! Bem-vinda à Lino Esmalteria, *{d['nome']}*! 🎉💖\n\n"
+                f"Você já tá logada e pronta pra usar!\n\n"
+                f"💅 Quer ver nossos **serviços**?\n"
+                f"📅 Ou já quer **agendar** um horário?\n\n"
+                f"É só me falar! 😊"
             )
         except Exception as e:
-            logger.error(f"Erro ao salvar cadastro: {e}")
-            return "Poxa, deu um erro aqui 😔 Tenta de novo, por favor? Se continuar dando problema, entra em contato com a gente!"
+            logger.error(f"Erro ao salvar cadastro: {e}", exc_info=True)
+            return (
+                "Poxa, tive um probleminha técnico aqui 😔\n\n"
+                "Pode tentar de novo? É só me falar **cadastrar** que a gente recomeça rapidinho!"
+            )
 
 
 # ---------------------------------------------------------------------------

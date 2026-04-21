@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip, Mic, Send, Check, CheckCheck, Camera, BadgeCheck } from "lucide-react";
+import { ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip, Mic, Send, Check, CheckCheck, Camera, BadgeCheck, Copy, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { QRCodeSVG } from "qrcode.react";
 
 type Msg = {
   id: number;
@@ -10,7 +11,17 @@ type Msg = {
   status?: "sent" | "delivered" | "read";
 };
 
-const initialMessages: Msg[] = [];
+const nowTimeStatic = () =>
+  new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const initialMessages: Msg[] = [
+  {
+    id: 1,
+    from: "them",
+    text: "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\nEu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\nPra começar, me conta: você já tem cadastro aqui com a gente?\n\n✅ Se sim, me fala **login**\n🆕 Se é sua primeira vez, me fala **cadastrar**\n\nOu se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅",
+    time: nowTimeStatic(),
+  },
+];
 
 const Tick = ({ status }: { status?: Msg["status"] }) => {
   if (!status) return null;
@@ -20,6 +31,56 @@ const Tick = ({ status }: { status?: Msg["status"] }) => {
 };
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL || "http://localhost:8000/chat";
+
+/* ---------- PIX QR Code Block ---------- */
+const PixBlock = ({ code }: { code: string }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+  return (
+    <div className="my-3 p-4 rounded-xl bg-white border border-gray-200 shadow-sm flex flex-col items-center gap-3">
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">PIX — Escaneie ou copie</p>
+      <div className="bg-white p-2 rounded-lg">
+        <QRCodeSVG value={code} size={180} level="M" />
+      </div>
+      <button
+        onClick={handleCopy}
+        className={cn(
+          "w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200",
+          copied
+            ? "bg-green-100 text-green-700 border border-green-300"
+            : "bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 active:scale-[0.98]"
+        )}
+      >
+        {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        {copied ? "Código copiado!" : "Copiar código PIX"}
+      </button>
+    </div>
+  );
+};
+
+/* ---------- Render text with bold + PIX blocks ---------- */
+const renderMessageContent = (text: string) => {
+  // Split by {{PIX:...}} markers
+  const pixParts = text.split(/(\{\{PIX:[^}]+\}\})/g);
+  return pixParts.map((segment, si) => {
+    const pixMatch = segment.match(/^\{\{PIX:(.+)\}\}$/);
+    if (pixMatch) {
+      return <PixBlock key={`pix-${si}`} code={pixMatch[1]} />;
+    }
+    // Render bold markdown
+    return segment.split(/(\*\*[^*]+\*\*)/).map((part, pi) =>
+      part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={`${si}-${pi}`} className="font-semibold">{part.slice(2, -2)}</strong>
+      ) : (
+        <span key={`${si}-${pi}`}>{part}</span>
+      )
+    );
+  });
+};
 
 const Index = () => {
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
@@ -123,7 +184,9 @@ const Index = () => {
                       : "bg-card text-foreground rounded-2xl rounded-tl-sm"
                   )}
                 >
-                  <p className="pr-12 whitespace-pre-wrap break-words">{m.text}</p>
+                  <div className="pr-12 whitespace-pre-wrap break-words">
+                    {renderMessageContent(m.text)}
+                  </div>
                   <span className="absolute bottom-1.5 right-2.5 flex items-center gap-0.5 text-[10px] text-foreground/50">
                     {m.time}
                     <Tick status={m.status} />
