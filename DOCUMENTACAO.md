@@ -78,12 +78,27 @@ O painel foi construído em React com um visual *dark premium* (glassmorphism vi
 
 ## 5. Integrações Externas e Tecnologias Usadas
 
-### 5.1. Ferramentas e Bibliotecas Core
-*   **React + TypeScript + Vite**: Base estrutural do frontend para alta performance.
-*   **Tailwind CSS**: Estilização moderna via utility-classes.
-*   **React Router DOM**: Gestão de rotas client-side (`/`, `/admin/login`, `/admin`).
-*   **Lucide React**: Biblioteca de iconografia limpa e consistente.
-*   **FastAPI (Python)**: Framework backend assíncrono e super rápido para as lógicas da IA e endpoints de administração.
+### 5.1. Ferramentas e Bibliotecas Utilizadas (Full Stack)
+
+**Frontend (React/Vite ecosystem):**
+*   **React (v18)** + **TypeScript**: Base estrutural garantindo tipagem forte e componentização.
+*   **Vite**: Bundler ultra-rápido para desenvolvimento e build.
+*   **Tailwind CSS** + **Tailwind Merge** (`tailwind-merge`) + **clsx**: Construção de classes utilitárias condicionais para estilização fluida, permitindo o design *glassmorphism*.
+*   **React Router DOM**: Gestão de rotas client-side, permitindo a separação entre o chat (`/`) e as páginas protegidas de admin (`/admin/login`, `/admin`).
+*   **Lucide React**: Biblioteca de ícones vetorizados escaláveis e leves.
+*   **Shadcn UI** + **Radix UI**: Componentes acessíveis como toasts (`sonner`, `toaster`) e tooltips, sem lock-in de estilização.
+*   **React Query** (`@tanstack/react-query`): Configurado no `App.tsx` para gerenciamento avançado de estado e requisições no lado do cliente.
+*   **qrcode.react**: Utilizado para renderizar QRCode (ex: fluxo de pagamento PIX fictício).
+*   **date-fns**: Formatação leve e manipulação de datas no Frontend.
+
+**Backend (Python ecosystem):**
+*   **FastAPI**: Framework web moderno e de alta performance para a criação dos endpoints e lógica do agente.
+*   **Uvicorn**: Servidor ASGI leve usado para rodar a aplicação FastAPI.
+*   **Supabase (Python SDK)**: ORM e driver de conexão para interagir com o PostgreSQL armazenado na nuvem.
+*   **Google GenAI SDK** (`google-genai`): Interface de comunicação direta com o LLM Gemini 1.5 Flash.
+*   **Pydantic**: Usado embutido no FastAPI para tipagem e validação de payloads JSON estritos na API.
+*   **Fuzzbook** / `fuzzywuzzy` / Algoritmos de Fuzzy Match: Usados na "inteligência" determinística do agente para identificar aproximações textuais dos nomes dos serviços e manicures.
+*   **Python-dotenv**: Gerenciamento seguro das credenciais via arquivo `.env`.
 
 ### 5.2. Serviços de Backend e Nuvem
 *   **Supabase**: Banco de dados PostgreSQL escalável integrado nativamente. Usado via MCP Servers e cliente Python.
