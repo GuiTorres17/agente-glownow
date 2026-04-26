@@ -2,14 +2,16 @@
 API FastAPI que expõe o agente da Lino Esmalteria.
 Roda em http://localhost:8000 e é exposta via Cloudflare Tunnel.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 import os
+import secrets
+import datetime
 
 # Importa o motor do seu agente
-from agente import MotorDialogo
+from agente import MotorDialogo, obter_servicos, obter_manicures, SUPABASE_DISPONIVEL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
@@ -27,12 +29,74 @@ app.add_middleware(
 
 motor = MotorDialogo()
 
+# ---------------------------------------------------------------------------
+# CREDENCIAIS ADMIN (hardcoded)
+# ---------------------------------------------------------------------------
+ADMIN_USERNAME = "esmalteria123"
+ADMIN_PASSWORD = "esmalteria@123"
 
+# Tokens ativos de sessão admin { token: timestamp_criacao }
+admin_tokens: dict[str, float] = {}
+TOKEN_EXPIRY_HOURS = 8
+
+
+def gerar_token_admin() -> str:
+    """Gera um token seguro e armazena."""
+    token = secrets.token_hex(32)
+    admin_tokens[token] = datetime.datetime.now().timestamp()
+    return token
+
+
+def validar_token_admin(token: str) -> bool:
+    """Valida se o token existe e não expirou."""
+    if token not in admin_tokens:
+        return False
+    criado_em = admin_tokens[token]
+    agora = datetime.datetime.now().timestamp()
+    if agora - criado_em > TOKEN_EXPIRY_HOURS * 3600:
+        del admin_tokens[token]
+        return False
+    return True
+
+
+def extrair_token(authorization: str | None) -> str:
+    """Extrai o token do header Authorization: Bearer <token>."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Token não fornecido")
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Formato de token inválido")
+    token = parts[1]
+    if not validar_token_admin(token):
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+    return token
+
+
+# ---------------------------------------------------------------------------
+# MODELOS
+# ---------------------------------------------------------------------------
 class ChatPayload(BaseModel):
     message: str
     user_id: str = "web-user"
 
 
+class AdminLoginPayload(BaseModel):
+    username: str
+    password: str
+
+
+class ConfirmarSinalPayload(BaseModel):
+    agendamento_id: int
+
+
+class AtualizarStatusPayload(BaseModel):
+    agendamento_id: int
+    status: str
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINTS PÚBLICOS
+# ---------------------------------------------------------------------------
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Lino Esmalteria Agent"}
@@ -55,6 +119,118 @@ def chat(payload: ChatPayload):
     except Exception as e:
         logger.exception("Erro no /chat")
         return {"reply": f"⚠️ Erro interno: {e}"}
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINTS ADMIN
+# ---------------------------------------------------------------------------
+@app.post("/admin/login")
+def admin_login(payload: AdminLoginPayload):
+    """Autentica funcionário com credenciais fixas."""
+    if payload.username == ADMIN_USERNAME and payload.password == ADMIN_PASSWORD:
+        token = gerar_token_admin()
+        logger.info("Admin login bem-sucedido")
+        return {"success": True, "token": token}
+    logger.warning(f"Tentativa de login admin falhou: {payload.username}")
+    raise HTTPException(status_code=401, detail="Credenciais inválidas")
+
+
+@app.get("/admin/dashboard")
+def admin_dashboard(authorization: str | None = Header(default=None)):
+    """Retorna dados do painel administrativo do dia."""
+    extrair_token(authorization)
+
+    agendamentos, data_str = motor._obter_agendamentos_do_dia()
+
+    # Calcular KPIs
+    faturamento = sum(a['servico_preco'] for a in agendamentos)
+    confirmados = [a for a in agendamentos if a.get('sinal_pago') and a['sinal_pago'] > 0]
+    pendentes = [a for a in agendamentos if not a.get('sinal_pago') or a['sinal_pago'] == 0]
+
+    return {
+        "data": data_str,
+        "agendamentos": agendamentos,
+        "kpis": {
+            "faturamento_previsto": faturamento,
+            "confirmados": len(confirmados),
+            "pendentes": len(pendentes),
+            "total_clientes": len(agendamentos),
+        }
+    }
+
+
+@app.post("/admin/confirmar-sinal")
+def admin_confirmar_sinal(
+    payload: ConfirmarSinalPayload,
+    authorization: str | None = Header(default=None),
+):
+    """Confirma o sinal de um agendamento."""
+    extrair_token(authorization)
+
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            # Buscar agendamento para calcular sinal
+            res = supabase.table('agendamentos') \
+                .select('*, servicos(preco)') \
+                .eq('id', payload.agendamento_id) \
+                .execute()
+
+            if not res.data:
+                raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+
+            agendamento = res.data[0]
+            preco = agendamento.get('servicos', {}).get('preco', 0) if agendamento.get('servicos') else 0
+            sinal_valor = preco * 0.4
+
+            supabase.table('agendamentos').update({
+                'sinal_pago': sinal_valor,
+                'status': 'confirmado',
+            }).eq('id', payload.agendamento_id).execute()
+
+            return {"success": True, "sinal_pago": sinal_valor}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao confirmar sinal: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao confirmar sinal")
+    else:
+        # Modo demo
+        return {"success": True, "sinal_pago": 12.0, "demo": True}
+
+
+@app.post("/admin/atualizar-status")
+def admin_atualizar_status(
+    payload: AtualizarStatusPayload,
+    authorization: str | None = Header(default=None),
+):
+    """Atualiza o status de um agendamento."""
+    extrair_token(authorization)
+
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            supabase.table('agendamentos').update({
+                'status': payload.status,
+            }).eq('id', payload.agendamento_id).execute()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Erro ao atualizar status: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao atualizar status")
+    else:
+        return {"success": True, "demo": True}
+
+
+@app.post("/admin/logout")
+def admin_logout(authorization: str | None = Header(default=None)):
+    """Invalida o token de sessão."""
+    try:
+        token = extrair_token(authorization)
+        if token in admin_tokens:
+            del admin_tokens[token]
+    except Exception:
+        pass
+    return {"success": True}
 
 
 if __name__ == "__main__":

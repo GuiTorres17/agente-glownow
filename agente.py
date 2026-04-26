@@ -101,6 +101,10 @@ class AssistenteIA:
         self.intencoes_login      = ['login', 'entrar', 'logar', 'minha conta', 'ja tenho conta', 'já tenho conta']
         self.intencoes_cadastro   = ['cadastrar', 'cadastro', 'criar conta', 'nova conta', 'registrar', 'me cadastrar', 'quero me cadastrar', 'sou nova', 'primeira vez']
 
+        # Intenções do painel administrativo (desabilitado no chat público
+        # — acesso exclusivo pelo painel admin com login)
+        self.intencoes_admin      = []
+
         # Respostas predefinidas — usadas como fallback se o Gemini falhar
         self.respostas_predefinidas = {
             "saudacao": [
@@ -325,6 +329,8 @@ class SessaoCliente:
         self.estado_fluxo     = None
         self.dados_agendamento = {}
         self.dados_cadastro   = {}
+        self.dados_admin      = {}   # dados temporários do painel admin
+        self.is_admin         = False # flag para sessões de funcionário
 
 
 class MotorDialogo:
@@ -402,6 +408,16 @@ class MotorDialogo:
             elif sessao.estado_fluxo == "agendamento_pagamento":
                 resposta_texto = self._proc_agendamento_pagamento(sessao, mensagem)
 
+            # --- FLUXOS DO PAINEL ADMIN ---
+            elif sessao.estado_fluxo == "admin_menu":
+                resposta_texto = self._proc_admin_menu(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "admin_confirmar_sinal":
+                resposta_texto = self._proc_admin_confirmar_sinal(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "admin_cobrar_pendentes":
+                resposta_texto = self._proc_admin_cobrar_pendentes(sessao, mensagem)
+
             else:
                 # ---------------------------------------------------------------
                 # Sem estado ativo — detecta intenção ou passa ao Gemini
@@ -417,6 +433,10 @@ class MotorDialogo:
 
                 elif any(p in mensagem_lower for p in assistente_ia.intencoes_cadastro):
                     resposta_texto = self._iniciar_cadastro(sessao)
+
+                # Painel admin removido do chat público — acesso via /admin/login
+                # elif any(p in mensagem_lower for p in assistente_ia.intencoes_admin):
+                #     resposta_texto = self._iniciar_painel_admin(sessao)
 
                 elif any(p in mensagem_lower for p in ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'hello']):
                     if sessao.cliente:
@@ -799,6 +819,280 @@ class MotorDialogo:
             )
 
 
+    # -----------------------------------------------------------------------
+    # PAINEL ADMINISTRATIVO VIA CHAT
+    # -----------------------------------------------------------------------
+    def _obter_agendamentos_do_dia(self, data_str=None):
+        """
+        Busca agendamentos do dia no Supabase com dados completos
+        (nome do cliente, serviço, preço, manicure).
+        Retorna lista de dicts enriquecidos ou lista demo.
+        """
+        if data_str is None:
+            data_str = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        if SUPABASE_DISPONIVEL:
+            try:
+                res = supabase.table('agendamentos') \
+                    .select('*, clientes(nome, celular), servicos(nome, preco), manicures(nome)') \
+                    .eq('data', data_str) \
+                    .neq('status', 'cancelado') \
+                    .order('horario') \
+                    .execute()
+
+                agendamentos = []
+                for a in (res.data or []):
+                    agendamentos.append({
+                        'id':            a['id'],
+                        'horario':       a.get('horario', '--:--'),
+                        'cliente_nome':  a.get('clientes', {}).get('nome', 'N/A') if a.get('clientes') else 'N/A',
+                        'cliente_cel':   a.get('clientes', {}).get('celular', '') if a.get('clientes') else '',
+                        'servico_nome':  a.get('servicos', {}).get('nome', 'N/A') if a.get('servicos') else 'N/A',
+                        'servico_preco': a.get('servicos', {}).get('preco', 0) if a.get('servicos') else 0,
+                        'manicure_nome': a.get('manicures', {}).get('nome', 'N/A') if a.get('manicures') else 'N/A',
+                        'status':        a.get('status', 'pendente'),
+                        'sinal_pago':    a.get('sinal_pago', 0),
+                    })
+                return agendamentos, data_str
+            except Exception as e:
+                logger.error(f"Erro ao buscar agendamentos do dia: {e}")
+                return [], data_str
+        else:
+            # Modo demo — dados simulados
+            return [
+                {'id': 1, 'horario': '09:00', 'cliente_nome': 'Maria Silva', 'cliente_cel': '11999999999',
+                 'servico_nome': 'Manicure', 'servico_preco': 30.0, 'manicure_nome': 'Helena',
+                 'status': 'confirmado', 'sinal_pago': 12.0},
+                {'id': 2, 'horario': '10:30', 'cliente_nome': 'Ana Souza', 'cliente_cel': '11988888888',
+                 'servico_nome': 'Alongamento', 'servico_preco': 120.0, 'manicure_nome': 'Joana',
+                 'status': 'pendente', 'sinal_pago': 0},
+                {'id': 3, 'horario': '14:00', 'cliente_nome': 'Carla Lima', 'cliente_cel': '11977777777',
+                 'servico_nome': 'Pedicure', 'servico_preco': 40.0, 'manicure_nome': 'Helena',
+                 'status': 'confirmado', 'sinal_pago': 16.0},
+            ], data_str
+
+    def _formatar_relatorio_diario(self, agendamentos, data_str):
+        """
+        Formata a lista de agendamentos em uma mensagem estruturada estilo
+        WhatsApp com KPIs, agenda cronológica e menu de ações rápidas.
+        """
+        hoje_label = datetime.datetime.now().strftime("%d/%m/%Y")
+        if data_str == hoje_label:
+            titulo_data = f"*📋 Painel do Dia — {data_str}*"
+        else:
+            titulo_data = f"*📋 Painel — {data_str}*"
+
+        if not agendamentos:
+            return (
+                f"{titulo_data}\n\n"
+                "Nenhum agendamento encontrado para essa data 📭\n\n"
+                "Dia tranquilo! Que tal aproveitar para organizar o estoque? 😉\n\n"
+                "─────────────────\n"
+                "1️⃣ Atualizar Agenda\n\n"
+                "_Digite o número da ação desejada._"
+            )
+
+        # --- Calcular KPIs ---
+        faturamento = sum(a['servico_preco'] for a in agendamentos)
+        confirmados = [a for a in agendamentos if a['sinal_pago'] and a['sinal_pago'] > 0]
+        pendentes   = [a for a in agendamentos if not a['sinal_pago'] or a['sinal_pago'] == 0]
+
+        # --- Bloco de Resumo ---
+        bloco_resumo = (
+            f"{titulo_data}\n\n"
+            f"💰 *Faturamento Previsto:* R$ {faturamento:,.2f}\n"
+            f"🟢 *Confirmados (Sinal Pago):* {len(confirmados)}\n"
+            f"🟠 *Pendentes (Aguardando Sinal):* {len(pendentes)}\n"
+            f"👥 *Total de Clientes:* {len(agendamentos)}"
+        )
+
+        # --- Lista da Agenda ---
+        bloco_agenda = "\n\n─────────────────\n*🗓️ Agenda do Dia*\n─────────────────\n"
+        for idx, a in enumerate(agendamentos, 1):
+            status_emoji = "🟢" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "🟠"
+            status_label = "Confirmado" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "Aguardando Sinal"
+            bloco_agenda += (
+                f"\n*{a['horario']}* — *{a['cliente_nome']}*\n"
+                f"   💅 {a['servico_nome']} — R$ {a['servico_preco']:.2f}\n"
+                f"   👩 Profissional: {a['manicure_nome']}\n"
+                f"   {status_emoji} _{status_label}_\n"
+            )
+
+        # --- Menu de Ações Rápidas ---
+        bloco_acoes = (
+            "\n─────────────────\n"
+            "*⚡ Ações Rápidas*\n"
+            "─────────────────\n\n"
+            "1️⃣ Confirmar Sinal\n"
+            "2️⃣ Cobrar Pendentes\n"
+            "3️⃣ Atualizar Agenda\n\n"
+            "_Digite o número da ação desejada._"
+        )
+
+        return bloco_resumo + bloco_agenda + bloco_acoes
+
+    def _iniciar_painel_admin(self, sessao):
+        """Gera o relatório diário e ativa o menu de ações."""
+        agendamentos, data_str = self._obter_agendamentos_do_dia()
+        sessao.dados_admin = {
+            'agendamentos': agendamentos,
+            'data': data_str,
+        }
+        sessao.estado_fluxo = "admin_menu"
+        return self._formatar_relatorio_diario(agendamentos, data_str)
+
+    def _proc_admin_menu(self, sessao, mensagem):
+        """Processa a escolha do menu de ações rápidas."""
+        msg = mensagem.strip()
+
+        if msg == '1' or 'confirmar sinal' in msg.lower():
+            return self._admin_iniciar_confirmar_sinal(sessao)
+        elif msg == '2' or 'cobrar' in msg.lower():
+            return self._admin_iniciar_cobrar_pendentes(sessao)
+        elif msg == '3' or 'atualizar' in msg.lower():
+            return self._admin_atualizar_agenda(sessao)
+        else:
+            sessao.estado_fluxo = None
+            sessao.dados_admin = {}
+            return (
+                "Ok, saí do painel! 😊\n\n"
+                "Se precisar ver a agenda de novo, é só me falar *agenda* a qualquer momento."
+            )
+
+    # --- AÇÃO 1: Confirmar Sinal ---
+    def _admin_iniciar_confirmar_sinal(self, sessao):
+        """Mostra a lista de pendentes para confirmar sinal."""
+        agendamentos = sessao.dados_admin.get('agendamentos', [])
+        pendentes = [a for a in agendamentos if not a['sinal_pago'] or a['sinal_pago'] == 0]
+
+        if not pendentes:
+            sessao.estado_fluxo = "admin_menu"
+            return (
+                "✅ *Ótima notícia!* Todos os agendamentos do dia já têm sinal confirmado!\n\n"
+                "─────────────────\n"
+                "1️⃣ Confirmar Sinal\n"
+                "2️⃣ Cobrar Pendentes\n"
+                "3️⃣ Atualizar Agenda\n\n"
+                "_Digite o número da ação ou qualquer coisa para sair do painel._"
+            )
+
+        sessao.dados_admin['pendentes'] = pendentes
+        sessao.estado_fluxo = "admin_confirmar_sinal"
+
+        resp = "*💳 Confirmar Sinal — Selecione o agendamento:*\n\n"
+        for i, a in enumerate(pendentes, 1):
+            resp += f"{i} — *{a['horario']}* | *{a['cliente_nome']}* | {a['servico_nome']} (R$ {a['servico_preco']:.2f})\n"
+        resp += "\n_Digite o número do agendamento ou *voltar* para retornar ao painel._"
+        return resp
+
+    def _proc_admin_confirmar_sinal(self, sessao, mensagem):
+        """Processa a confirmação de sinal de um agendamento pendente."""
+        msg = mensagem.strip().lower()
+        if msg in ['voltar', 'cancelar', 'sair']:
+            sessao.estado_fluxo = "admin_menu"
+            return self._formatar_relatorio_diario(
+                sessao.dados_admin.get('agendamentos', []),
+                sessao.dados_admin.get('data', '')
+            )
+
+        pendentes = sessao.dados_admin.get('pendentes', [])
+        if mensagem.strip().isdigit():
+            idx = int(mensagem.strip())
+            if 1 <= idx <= len(pendentes):
+                agendamento = pendentes[idx - 1]
+                sinal_valor = agendamento['servico_preco'] * 0.4
+
+                # Atualizar no Supabase
+                if SUPABASE_DISPONIVEL:
+                    try:
+                        supabase.table('agendamentos').update({
+                            'sinal_pago': sinal_valor,
+                            'status': 'confirmado',
+                        }).eq('id', agendamento['id']).execute()
+                    except Exception as e:
+                        logger.error(f"Erro ao confirmar sinal: {e}")
+                        return "❌ Ocorreu um erro ao salvar a confirmação. Tente novamente."
+
+                # Atualizar dados locais da sessão
+                for a in sessao.dados_admin.get('agendamentos', []):
+                    if a['id'] == agendamento['id']:
+                        a['sinal_pago'] = sinal_valor
+                        a['status'] = 'confirmado'
+
+                sessao.estado_fluxo = "admin_menu"
+                return (
+                    f"✅ *Sinal confirmado!*\n\n"
+                    f"👤 *{agendamento['cliente_nome']}*\n"
+                    f"💅 {agendamento['servico_nome']} às *{agendamento['horario']}*\n"
+                    f"💰 Sinal: R$ {sinal_valor:.2f}\n\n"
+                    "─────────────────\n"
+                    "1️⃣ Confirmar Sinal\n"
+                    "2️⃣ Cobrar Pendentes\n"
+                    "3️⃣ Atualizar Agenda\n\n"
+                    "_Digite o número da ação ou qualquer coisa para sair do painel._"
+                )
+
+        return "Não entendi 😅 Me manda o *número* do agendamento da lista ou *voltar* pra retornar."
+
+    # --- AÇÃO 2: Cobrar Pendentes ---
+    def _admin_iniciar_cobrar_pendentes(self, sessao):
+        """Gera mensagens de cobrança para todos os pendentes."""
+        agendamentos = sessao.dados_admin.get('agendamentos', [])
+        pendentes = [a for a in agendamentos if not a['sinal_pago'] or a['sinal_pago'] == 0]
+
+        if not pendentes:
+            sessao.estado_fluxo = "admin_menu"
+            return (
+                "✅ *Nenhum pendente!* Todos os sinais já foram confirmados 🎉\n\n"
+                "─────────────────\n"
+                "1️⃣ Confirmar Sinal\n"
+                "2️⃣ Cobrar Pendentes\n"
+                "3️⃣ Atualizar Agenda\n\n"
+                "_Digite o número da ação ou qualquer coisa para sair do painel._"
+            )
+
+        data_str = sessao.dados_admin.get('data', '')
+        resp = "*📨 Mensagens de Cobrança Geradas:*\n\n"
+        resp += "_Copie e envie cada mensagem para a cliente:_\n\n"
+
+        for i, a in enumerate(pendentes, 1):
+            sinal_valor = a['servico_preco'] * 0.4
+            msg_cobranca = (
+                f"Oi, *{a['cliente_nome']}*! Tudo bem? 😊\n"
+                f"Passando pra lembrar do seu horário na _Lino Esmalteria_:\n\n"
+                f"📅 *{data_str}* às *{a['horario']}*\n"
+                f"💅 *{a['servico_nome']}*\n\n"
+                f"Pra garantir seu horário, é só enviar o sinal de *R$ {sinal_valor:.2f}* via PIX 💳\n"
+                f"Qualquer dúvida, estou por aqui! 💖"
+            )
+            resp += f"─── Cliente {i} ───\n{msg_cobranca}\n\n"
+
+        sessao.estado_fluxo = "admin_menu"
+        resp += (
+            "─────────────────\n"
+            "1️⃣ Confirmar Sinal\n"
+            "2️⃣ Cobrar Pendentes\n"
+            "3️⃣ Atualizar Agenda\n\n"
+            "_Digite o número da ação ou qualquer coisa para sair do painel._"
+        )
+        return resp
+
+    def _proc_admin_cobrar_pendentes(self, sessao, mensagem):
+        """Fallback — redireciona de volta ao menu."""
+        return self._proc_admin_menu(sessao, mensagem)
+
+    # --- AÇÃO 3: Atualizar Agenda ---
+    def _admin_atualizar_agenda(self, sessao):
+        """Re-consulta o banco e gera o relatório atualizado."""
+        agendamentos, data_str = self._obter_agendamentos_do_dia()
+        sessao.dados_admin = {
+            'agendamentos': agendamentos,
+            'data': data_str,
+        }
+        sessao.estado_fluxo = "admin_menu"
+        return self._formatar_relatorio_diario(agendamentos, data_str)
+
+
 # ---------------------------------------------------------------------------
 # SIMULAÇÃO (Exemplo de integração com o frontend React / Index.tsx)
 # ---------------------------------------------------------------------------
@@ -825,6 +1119,12 @@ if __name__ == "__main__":
         "1",   # profissional
         "1",   # horário
         "sim", # confirmar agendamento
+        # --- Painel Administrativo ---
+        "agenda",                 # abre o painel
+        "1",                      # confirmar sinal
+        "voltar",                 # voltar ao painel
+        "2",                      # cobrar pendentes
+        "3",                      # atualizar agenda
         # --- Escape cancelar ---
         "login",
         "cancelar",

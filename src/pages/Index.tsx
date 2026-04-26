@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Phone, Video, MoreVertical, Smile, Paperclip, Mic, Send, Check, CheckCheck, Camera, BadgeCheck, Copy, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QRCodeSVG } from "qrcode.react";
@@ -83,10 +84,14 @@ const renderMessageContent = (text: string) => {
 };
 
 const Index = () => {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Frase secreta para acessar o painel admin
+  const SECRET_PHRASE = "hipopotamo quadrado robinilson de pernil";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -98,6 +103,14 @@ const Index = () => {
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
+
+    // Verifica frase secreta do admin
+    if (text.toLowerCase() === SECRET_PHRASE) {
+      setDraft("");
+      navigate("/admin/login");
+      return;
+    }
+
     const userMsg: Msg = { id: Date.now(), from: "me", text, time: nowTime(), status: "sent" };
     setMessages((m) => [...m, userMsg]);
     setDraft("");
