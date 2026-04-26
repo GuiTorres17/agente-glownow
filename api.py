@@ -136,11 +136,16 @@ def admin_login(payload: AdminLoginPayload):
 
 
 @app.get("/admin/dashboard")
-def admin_dashboard(authorization: str | None = Header(default=None)):
-    """Retorna dados do painel administrativo do dia."""
+def admin_dashboard(
+    authorization: str | None = Header(default=None),
+    date: str | None = None,
+):
+    """Retorna dados do painel administrativo para uma data específica.
+    Se `date` não for passado, usa a data de hoje. Formato: DD/MM/YYYY.
+    """
     extrair_token(authorization)
 
-    agendamentos, data_str = motor._obter_agendamentos_do_dia()
+    agendamentos, data_str = motor._obter_agendamentos_do_dia(date)
 
     # Calcular KPIs
     faturamento = sum(a['servico_preco'] for a in agendamentos)
@@ -156,6 +161,47 @@ def admin_dashboard(authorization: str | None = Header(default=None)):
             "pendentes": len(pendentes),
             "total_clientes": len(agendamentos),
         }
+    }
+
+
+@app.get("/admin/monthly")
+def admin_monthly(
+    authorization: str | None = Header(default=None),
+    month: int | None = None,
+    year: int | None = None,
+):
+    """Retorna resumo mensal: para cada dia do mês, quantos agendamentos e faturamento.
+    Se month/year não forem passados, usa o mês atual.
+    """
+    extrair_token(authorization)
+
+    hoje = datetime.datetime.now()
+    mes = month or hoje.month
+    ano = year or hoje.year
+
+    import calendar
+    _, dias_no_mes = calendar.monthrange(ano, mes)
+
+    resumo_dias = []
+    for dia in range(1, dias_no_mes + 1):
+        data_str = f"{dia:02d}/{mes:02d}/{ano}"
+        agendamentos, _ = motor._obter_agendamentos_do_dia(data_str)
+        total = len(agendamentos)
+        faturamento = sum(a['servico_preco'] for a in agendamentos)
+        confirmados = len([a for a in agendamentos if a.get('sinal_pago') and a['sinal_pago'] > 0])
+        resumo_dias.append({
+            "dia": dia,
+            "data": data_str,
+            "total": total,
+            "confirmados": confirmados,
+            "pendentes": total - confirmados,
+            "faturamento": faturamento,
+        })
+
+    return {
+        "mes": mes,
+        "ano": ano,
+        "dias": resumo_dias,
     }
 
 
