@@ -1,6 +1,6 @@
 # Documentação do Projeto: Agente Lino Esmalteria 💅
 
-Este documento detalha tudo o que foi desenvolvido até o momento para o assistente virtual (Agente IA) da Lino Esmalteria, incluindo arquitetura, fluxos conversacionais, integração com banco de dados, stack do frontend e backend, e os processos de deploy.
+Este documento detalha tudo o que foi desenvolvido até o momento para o assistente virtual (Agente IA) da Lino Esmalteria, incluindo arquitetura, fluxos conversacionais, integração com banco de dados, stack do frontend e backend, processos de deploy, e o painel administrativo secreto.
 
 ---
 
@@ -44,33 +44,61 @@ Um dos fluxos mais completos é o de agendamento de horários:
 O Frontend foi completamente reestruturado para ser um projeto Vite/React padrão de mercado.
 
 *   **Páginas Principais**: A página `Index.tsx` abriga a interface principal do chat. Ela se comunica ativamente com a API do FastAPI via requisições HTTP (POST).
-*   **Componentes de UI**: Adotamos bibliotecas robustas de acessibilidade e design (`@radix-ui`) empacotadas via Shadcn UI, garantindo uma estética *premium*, rápida e minimalista, sem sacrificar a funcionalidade.
+*   **Componentes de UI**: Adotamos bibliotecas robustas de acessibilidade e design (`@radix-ui`) empacotadas via Shadcn UI, garantindo uma estética *premium*, rápida e minimalista, sem sacrificar a funcionalidade. Ícones dinâmicos utilizam a biblioteca **Lucide React**.
 *   **Gerenciamento de Estado do Chat**: As mensagens e o histórico do chat em tempo real são gerenciados localmente no React, exibindo indicadores de digitação (typing) quando o backend está processando uma resposta.
 
 ---
 
-## 4. Integrações Externas
+## 4. Painel Administrativo Secreto
 
-### 4.1. Supabase
-Totalmente integrado via variáveis de ambiente (`SUPABASE_URL` e `SUPABASE_KEY`). O uso do cliente em Python garante buscas, inserções e validações na nuvem. Foram configurados *MCP Servers* para melhorar a gestão de dados.
+Para garantir segurança e separar a interface do cliente da interface de gestão dos funcionários, foi implementado um **Painel Administrativo protegido e invisível** para o público em geral.
 
-### 4.2. Google Gemini API
-A transição do modelo antigo (DialoGPT local, pesado e com muitas alucinações) para o **Google GenAI** modernizou o bot. Ele agora consome pouco recurso local/servidor, respondendo de forma ultra-rápida e contextualizada às regras da esmalteria.
+### 4.1. Gatilho Secreto (Easter Egg)
+O painel não possui botões públicos. Para acessá-lo, o funcionário deve digitar a frase secreta **"Hipopotamo quadrado robinilson de pernil"** diretamente no chat. O frontend intercepta essa mensagem e redireciona silenciosamente para a rota de login (`/admin/login`).
+
+### 4.2. Autenticação e Segurança
+*   **Login**: Protegido por usuário e senha (`esmalteria123` / `esmalteria@123`).
+*   **Tokens (JWT-like)**: O backend (FastAPI) gera um token seguro (`secrets.token_hex`) com expiração de 8 horas. Esse token é armazenado no `localStorage` e exigido em todas as requisições de dashboard.
+*   **Restrição no Chat Público**: Intenções de admin (ex: "ver agenda", "relatório") foram bloqueadas no agente público. Clientes não podem acessar dados administrativos via IA.
+
+### 4.3. Dashboard Visual e Funcionalidades
+O painel foi construído em React com um visual *dark premium* (glassmorphism via Tailwind CSS) e é dividido em duas visões principais usando **React Router**:
+*   **Visão Diária**:
+    *   Exibe KPIs em tempo real (Faturamento Previsto, Confirmados, Pendentes, Total de Clientes).
+    *   Lista detalhada e cronológica de todos os agendamentos do dia selecionado.
+    *   Navegação fácil entre dias anteriores e posteriores utilizando setas ou botão "Hoje".
+    *   Botões de "Ação Rápida" para confirmar manualmente o recebimento de sinal/PIX de clientes pendentes.
+*   **Visão Mensal (Calendário)**:
+    *   Um calendário completo em formato de grid renderizando os dados agregados do mês inteiro.
+    *   Cada dia do mês exibe uma "mini-visão" mostrando o total de agendamentos e o faturamento previsto.
+    *   Indicadores visuais de status (verde se todos estão pagos, âmbar se existem pendências).
+    *   Totalização dos KPIs do mês corrente no topo.
 
 ---
 
-## 5. Processo de Deploy (Produção)
+## 5. Integrações Externas e Tecnologias Usadas
 
-A aplicação foi migrada de um ambiente unicamente local para uma estrutura *cloud-ready* funcional, disponível na web:
+### 5.1. Ferramentas e Bibliotecas Core
+*   **React + TypeScript + Vite**: Base estrutural do frontend para alta performance.
+*   **Tailwind CSS**: Estilização moderna via utility-classes.
+*   **React Router DOM**: Gestão de rotas client-side (`/`, `/admin/login`, `/admin`).
+*   **Lucide React**: Biblioteca de iconografia limpa e consistente.
+*   **FastAPI (Python)**: Framework backend assíncrono e super rápido para as lógicas da IA e endpoints de administração.
 
-*   **Repositório e CI/CD**: O projeto está no GitHub e possui integração contínua (CI/CD).
+### 5.2. Serviços de Backend e Nuvem
+*   **Supabase**: Banco de dados PostgreSQL escalável integrado nativamente. Usado via MCP Servers e cliente Python.
+*   **Google Gemini API (1.5 Flash)**: O "cérebro" do assistente, garantindo respostas rápidas, precisas e humanizadas, com baixo risco de alucinação e altíssima compreensão de contexto (fuzzy logic natural).
+
+---
+
+## 6. Processo de Deploy (Produção)
+
+A aplicação está estruturada para ambientes *cloud-ready* com integração contínua (CI/CD):
+
+*   **Repositório (GitHub)**: Hospedagem do código-fonte.
 *   **Backend no Render (Web Service)**: 
-    *   A API FastAPI está hospedada no serviço **Render**.
-    *   Arquivos de configuração foram adicionados para suportar este deploy: `requirements.txt` (dependências Python), `Procfile` e `runtime.txt`.
-    *   As variáveis de ambiente sensíveis (Chaves Supabase, Gemini) foram configuradas diretamente no dashboard do Render.
+    *   A API FastAPI é deployada automaticamente. Configurada via `requirements.txt`. Variáveis de ambiente sensíveis (Supabase e Gemini) seguras no painel do Render.
 *   **Frontend na Vercel**: 
-    *   A aplicação React foi configurada com o build script `npm run build` na Vercel. 
-    *   Ela consome a URL de produção da API hospedada no Render para o tráfego do chat.
-
-
-*Documentação gerada com base nas atualizações recentes da arquitetura do projeto.*
+    *   A interface React é construída (`npm run build`) via Vercel. 
+    *   **SPA Routing**: Implementamos um `vercel.json` (`rewrites` para `/index.html`) para garantir que as rotas secretas do React Router (`/admin/login`) não retornem erro 404 ao serem acessadas diretamente.
+    *   O frontend consome a URL de produção do Render via `VITE_AGENT_URL`.
