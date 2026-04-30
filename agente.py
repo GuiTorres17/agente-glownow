@@ -436,7 +436,12 @@ class MotorDialogo:
             # Roteamento por estado — fluxo guiado (sem IA no meio dos fluxos)
             # -------------------------------------------------------------------
             if sessao.estado_fluxo == "login_contato":
-                resposta_texto = self._processar_login(sessao, mensagem)
+                # Se o usuário digitar "cadastrar" durante o login, redireciona para cadastro
+                if any(p in mensagem_lower for p in assistente_ia.intencoes_cadastro):
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_cadastro(sessao)
+                else:
+                    resposta_texto = self._processar_login(sessao, mensagem)
 
             elif sessao.estado_fluxo == "cadastro_nome":
                 resposta_texto = self._proc_cadastro_nome(sessao, mensagem)
@@ -555,7 +560,7 @@ class MotorDialogo:
 
         resp = "Olha só o que a gente oferece 💅✨\n\n"
         for cat, itens in categorias.items():
-            resp += f"*{cat}*\n"
+            resp += f"**{cat}**\n"
             for s in itens:
                 resp += f"  • {s['nome']} — R$ {s['preco']:.2f}\n"
             resp += "\n"
@@ -565,7 +570,7 @@ class MotorDialogo:
     # --- LOGIN ---
     def _iniciar_login(self, sessao):
         if sessao.cliente:
-            return f"Você já tá logada, *{sessao.cliente['nome']}*! 😊 Se quiser marcar um horário, me fala **agendar**."
+            return f"Você já tá logada, **{sessao.cliente['nome']}**! 😊 Se quiser marcar um horário, me fala **agendar**."
         sessao.estado_fluxo = "login_contato"
         return (
             "Claro, vou te identificar! Me passa seu **e-mail** ou **celular** que eu te encontro aqui no sistema 😉"
@@ -580,15 +585,13 @@ class MotorDialogo:
             sessao.cliente = cliente
             sessao.estado_fluxo = None
             return (
-                f"Achei! Oi, *{cliente['nome']}*! Que bom te ver de volta 😊\n"
+                f"Achei! Oi, **{cliente['nome']}**! Que bom te ver de volta 😊\n"
                 f"Me fala o que você precisa — posso te mostrar nossos **serviços** ou te ajudar a **agendar** um horário!"
             )
-        # Não encontrou — oferece cadastro diretamente
-        sessao.estado_fluxo = None
+        # Não encontrou — mantém no fluxo de login para tentar novamente
         return (
             "Hmm, não encontrei ninguém com esse contato 😔\n\n"
-            "Mas não se preocupa! Posso te cadastrar rapidinho agora mesmo 😊\n"
-            "É só me falar **cadastrar** que a gente resolve em 1 minutinho!"
+            "Tenta de novo com outro **e-mail** ou **celular**, ou se preferir, fala **cadastrar** pra criar uma conta nova! 😊"
         )
 
     # --- AGENDAMENTO: PASSO 1 — Data ---
@@ -617,7 +620,7 @@ class MotorDialogo:
             sessao.estado_fluxo = "agendamento_servico"
             servs = obter_servicos()
             sessao.dados_agendamento['lista_servicos'] = servs
-            resp = f"Perfeito, anotei dia *{sessao.dados_agendamento['data']}*! 📅\n\nAgora me fala, qual serviço você quer fazer?\n\n"
+            resp = f"Perfeito, anotei dia **{sessao.dados_agendamento['data']}**! 📅\n\nAgora me fala, qual serviço você quer fazer?\n\n"
             for i, s in enumerate(servs, 1):
                 resp += f"{i} - {s['nome']} (R$ {s['preco']:.2f})\n"
             return resp
@@ -641,7 +644,7 @@ class MotorDialogo:
             sessao.estado_fluxo = "agendamento_manicure"
             manicures = obter_manicures()
             sessao.dados_agendamento['lista_manicures'] = manicures
-            resp = f"Ótima escolha, *{servico_escolhido['nome']}*! 💅\n\nAgora me fala, com qual das nossas profissionais você gostaria de ser atendida?\n\n"
+            resp = f"Ótima escolha, **{servico_escolhido['nome']}**! 💅\n\nAgora me fala, com qual das nossas profissionais você gostaria de ser atendida?\n\n"
             for i, m in enumerate(manicures, 1):
                 resp += f"{i} - {m['nome']}\n"
             resp += "\nPode me mandar o número ou o nome dela 😊"
@@ -672,7 +675,7 @@ class MotorDialogo:
                 sessao.dados_agendamento['servico'],
             )
             sessao.dados_agendamento['lista_horarios'] = horarios
-            resp = f"Boa, a *{manicure_escolhida['nome']}* é maravilhosa! 😊\n\nAgora escolhe o melhor horário pra você:\n\n"
+            resp = f"Boa, a **{manicure_escolhida['nome']}** é maravilhosa! 😊\n\nAgora escolhe o melhor horário pra você:\n\n"
             for i, h in enumerate(horarios, 1):
                 resp += f"{i} - {h}\n"
             return resp
@@ -690,10 +693,10 @@ class MotorDialogo:
             sessao.dados_agendamento['sinal'] = sinal
             return (
                 f"Perfeito! Olha o resumo do seu agendamento 😊\n\n"
-                f"📅 Dia: *{d['data']}*\n"
-                f"🕐 Horário: *{d['horario']}*\n"
-                f"💅 Serviço: *{d['servico']['nome']}* (R$ {preco:.2f})\n"
-                f"👩 Profissional: *{d['manicure']['nome']}*\n\n"
+                f"📅 Dia: **{d['data']}**\n"
+                f"🕐 Horário: **{d['horario']}**\n"
+                f"💅 Serviço: **{d['servico']['nome']}** (R$ {preco:.2f})\n"
+                f"👩 Profissional: **{d['manicure']['nome']}**\n\n"
                 f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
                 f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
             )
@@ -744,23 +747,27 @@ class MotorDialogo:
     def _salvar_agendamento(self, sessao):
         """Salva o agendamento confirmado no Supabase com o sinal."""
         d = sessao.dados_agendamento
-        sinal = d.get('sinal', d['servico']['preco'] * 0.4)
+        preco = d['servico']['preco']
+        sinal = d.get('sinal', preco * 0.4)
         try:
             if SUPABASE_DISPONIVEL:
                 supabase.table('agendamentos').insert({
-                    'cliente_id':  sessao.cliente['id'],
-                    'servico_id':  d['servico'].get('id'),
-                    'manicure_id': d['manicure'].get('id'),
-                    'data':        d['data'],
-                    'horario':     d['horario'],
-                    'status':      'confirmado',
-                    'sinal_pago':  sinal,
-                    'criado_em':   datetime.datetime.now().isoformat(),
+                    'cliente_id':     sessao.cliente['id'],
+                    'servico_id':     d['servico'].get('id'),
+                    'manicure_id':    d['manicure'].get('id'),
+                    'data':           d['data'],
+                    'horario':        d['horario'],
+                    'status':         'confirmado',
+                    'sinal_pago':     sinal,
+                    'preco_cobrado':  preco,
+                    'valor_sinal':    sinal,
+                    'forma_pagamento': 'pix',
+                    'criado_em':      datetime.datetime.now().isoformat(),
                 }).execute()
             return (
                 f"Pagamento recebido e agendamento confirmado! ✨\n\n"
-                f"📅 *{d['data']}* às *{d['horario']}*\n"
-                f"💅 *{d['servico']['nome']}* com a *{d['manicure']['nome']}*\n"
+                f"📅 **{d['data']}** às **{d['horario']}**\n"
+                f"💅 **{d['servico']['nome']}** com a **{d['manicure']['nome']}**\n"
                 f"💰 Sinal pago: R$ {sinal:.2f}\n\n"
                 f"Vamos te esperar, viu? Qualquer coisa é só chamar! 💖"
             )
@@ -775,7 +782,7 @@ class MotorDialogo:
     def _iniciar_cadastro(self, sessao):
         """Inicia o fluxo de cadastro de novo cliente."""
         if sessao.cliente:
-            return f"Você já tem conta, *{sessao.cliente['nome']}*! 😊 Se quiser marcar um horário, me fala **agendar**."
+            return f"Você já tem conta, **{sessao.cliente['nome']}**! 😊 Se quiser marcar um horário, me fala **agendar**."
         sessao.dados_cadastro = {}
         sessao.estado_fluxo = "cadastro_nome"
         return (
@@ -790,7 +797,7 @@ class MotorDialogo:
             return "Hmm, acho que faltou algo 😅 Me manda seu nome completo, por favor!"
         sessao.dados_cadastro['nome'] = nome
         sessao.estado_fluxo = "cadastro_email"
-        return f"Muito prazer, *{nome}*! Que bom te conhecer 😊\n\nAgora me passa seu **e-mail** pra eu salvar aqui, por favor?"
+        return f"Muito prazer, **{nome}**! Que bom te conhecer 😊\n\nAgora me passa seu **e-mail** pra eu salvar aqui, por favor?"
 
     def _proc_cadastro_email(self, sessao, mensagem):
         email = mensagem.strip().lower()
@@ -878,7 +885,7 @@ class MotorDialogo:
                 # Modo demo — simula login sem persistência
                 sessao.cliente = {'id': 999, 'nome': d['nome'], 'email': d['email'], 'celular': d.get('celular')}
             return (
-                f"Pronto, sua conta foi criada com sucesso! Bem-vinda à Lino Esmalteria, *{d['nome']}*! 🎉💖\n\n"
+                f"Pronto, sua conta foi criada com sucesso! Bem-vinda à Lino Esmalteria, **{d['nome']}**! 🎉💖\n\n"
                 f"Você já tá logada e pronta pra usar!\n\n"
                 f"💅 Quer ver nossos **serviços**?\n"
                 f"📅 Ou já quer **agendar** um horário?\n\n"
@@ -915,13 +922,17 @@ class MotorDialogo:
 
                 agendamentos = []
                 for a in (res.data or []):
+                    # Use preco_cobrado (saved at booking time) or fallback to servicos join
+                    preco = a.get('preco_cobrado') or 0
+                    if not preco and a.get('servicos'):
+                        preco = a['servicos'].get('preco', 0)
                     agendamentos.append({
                         'id':            a['id'],
                         'horario':       a.get('horario', '--:--'),
                         'cliente_nome':  a.get('clientes', {}).get('nome', 'N/A') if a.get('clientes') else 'N/A',
                         'cliente_cel':   a.get('clientes', {}).get('celular', '') if a.get('clientes') else '',
                         'servico_nome':  a.get('servicos', {}).get('nome', 'N/A') if a.get('servicos') else 'N/A',
-                        'servico_preco': a.get('servicos', {}).get('preco', 0) if a.get('servicos') else 0,
+                        'servico_preco': preco,
                         'manicure_nome': a.get('manicures', {}).get('nome', 'N/A') if a.get('manicures') else 'N/A',
                         'status':        a.get('status', 'pendente'),
                         'sinal_pago':    a.get('sinal_pago', 0),
@@ -951,9 +962,9 @@ class MotorDialogo:
         """
         hoje_label = datetime.datetime.now().strftime("%d/%m/%Y")
         if data_str == hoje_label:
-            titulo_data = f"*📋 Painel do Dia — {data_str}*"
+            titulo_data = f"**📋 Painel do Dia — {data_str}**"
         else:
-            titulo_data = f"*📋 Painel — {data_str}*"
+            titulo_data = f"**📋 Painel — {data_str}**"
 
         if not agendamentos:
             return (
@@ -973,19 +984,19 @@ class MotorDialogo:
         # --- Bloco de Resumo ---
         bloco_resumo = (
             f"{titulo_data}\n\n"
-            f"💰 *Faturamento Previsto:* R$ {faturamento:,.2f}\n"
-            f"🟢 *Confirmados (Sinal Pago):* {len(confirmados)}\n"
-            f"🟠 *Pendentes (Aguardando Sinal):* {len(pendentes)}\n"
-            f"👥 *Total de Clientes:* {len(agendamentos)}"
+            f"💰 **Faturamento Previsto:** R$ {faturamento:,.2f}\n"
+            f"🟢 **Confirmados (Sinal Pago):** {len(confirmados)}\n"
+            f"🟠 **Pendentes (Aguardando Sinal):** {len(pendentes)}\n"
+            f"👥 **Total de Clientes:** {len(agendamentos)}"
         )
 
         # --- Lista da Agenda ---
-        bloco_agenda = "\n\n─────────────────\n*🗓️ Agenda do Dia*\n─────────────────\n"
+        bloco_agenda = "\n\n─────────────────\n**🗓️ Agenda do Dia**\n─────────────────\n"
         for idx, a in enumerate(agendamentos, 1):
             status_emoji = "🟢" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "🟠"
             status_label = "Confirmado" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "Aguardando Sinal"
             bloco_agenda += (
-                f"\n*{a['horario']}* — *{a['cliente_nome']}*\n"
+                f"\n**{a['horario']}** — **{a['cliente_nome']}**\n"
                 f"   💅 {a['servico_nome']} — R$ {a['servico_preco']:.2f}\n"
                 f"   👩 Profissional: {a['manicure_nome']}\n"
                 f"   {status_emoji} _{status_label}_\n"
@@ -994,7 +1005,7 @@ class MotorDialogo:
         # --- Menu de Ações Rápidas ---
         bloco_acoes = (
             "\n─────────────────\n"
-            "*⚡ Ações Rápidas*\n"
+            "**⚡ Ações Rápidas**\n"
             "─────────────────\n\n"
             "1️⃣ Confirmar Sinal\n"
             "2️⃣ Cobrar Pendentes\n"

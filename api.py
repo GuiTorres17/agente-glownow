@@ -216,7 +216,7 @@ def admin_confirmar_sinal(
     if SUPABASE_DISPONIVEL:
         from agente import supabase
         try:
-            # Buscar agendamento para calcular sinal
+            # Buscar agendamento — usa preco_cobrado (armazenado no momento do booking)
             res = supabase.table('agendamentos') \
                 .select('*, servicos(preco)') \
                 .eq('id', payload.agendamento_id) \
@@ -226,11 +226,17 @@ def admin_confirmar_sinal(
                 raise HTTPException(status_code=404, detail="Agendamento não encontrado")
 
             agendamento = res.data[0]
-            preco = agendamento.get('servicos', {}).get('preco', 0) if agendamento.get('servicos') else 0
+
+            # Prioridade: preco_cobrado > servicos.preco > fallback 0
+            preco = agendamento.get('preco_cobrado') or 0
+            if not preco and agendamento.get('servicos'):
+                preco = agendamento['servicos'].get('preco', 0)
+
             sinal_valor = preco * 0.4
 
             supabase.table('agendamentos').update({
                 'sinal_pago': sinal_valor,
+                'valor_sinal': sinal_valor,
                 'status': 'confirmado',
             }).eq('id', payload.agendamento_id).execute()
 
@@ -239,7 +245,7 @@ def admin_confirmar_sinal(
             raise
         except Exception as e:
             logger.error(f"Erro ao confirmar sinal: {e}")
-            raise HTTPException(status_code=500, detail="Erro ao confirmar sinal")
+            raise HTTPException(status_code=500, detail=f"Erro ao confirmar sinal: {str(e)}")
     else:
         # Modo demo
         return {"success": True, "sinal_pago": 12.0, "demo": True}

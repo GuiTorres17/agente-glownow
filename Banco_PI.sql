@@ -49,9 +49,23 @@ CREATE TABLE IF NOT EXISTS public.agendamentos (
     horario VARCHAR,
     hora_fim VARCHAR,
     status VARCHAR DEFAULT 'confirmado',
+    preco_cobrado DOUBLE PRECISION DEFAULT 0,
+    valor_sinal DOUBLE PRECISION DEFAULT 0,
     sinal_pago DOUBLE PRECISION DEFAULT 0,
+    forma_pagamento VARCHAR DEFAULT 'pix',
     observacoes TEXT,
     lembrete_enviado BOOLEAN DEFAULT FALSE,
+    criado_em TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
+-- Tabela: funcionarios (Autenticação do Painel Admin)
+CREATE TABLE IF NOT EXISTS public.funcionarios (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR NOT NULL,
+    usuario VARCHAR UNIQUE NOT NULL,
+    senha_hash VARCHAR NOT NULL,
+    cargo VARCHAR DEFAULT 'atendente',
+    ativo BOOLEAN DEFAULT TRUE,
     criado_em TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 

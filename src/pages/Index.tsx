@@ -99,7 +99,7 @@ const Index = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Frase secreta para acessar o painel admin
-  const SECRET_PHRASE = "hipopotamo quadrado robinilson de pernil";
+  const SECRET_PHRASE = "acesso administrativo lino esmalteria";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
