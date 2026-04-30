@@ -468,6 +468,10 @@ class MotorDialogo:
                     # Se responder "não", assume que é nova → cadastro
                     sessao.estado_fluxo = None
                     resposta_texto = self._iniciar_cadastro(sessao)
+                elif validar_email(mensagem.strip()) or validar_celular(mensagem.strip()):
+                    # Se o usuário digitou direto um email ou celular válido, processa o login imediatamente
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._processar_login(sessao, mensagem)
                 else:
                     # Qualquer outra coisa, reseta e passa pro fluxo normal
                     sessao.estado_fluxo = None
