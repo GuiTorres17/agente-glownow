@@ -131,7 +131,7 @@ O Frontend foi completamente reestruturado para ser um projeto Vite/React padrã
 Para garantir segurança e separar a interface do cliente da interface de gestão dos funcionários, foi implementado um **Painel Administrativo protegido e invisível** para o público em geral.
 
 ### 5.1. Gatilho Secreto (Easter Egg)
-O painel não possui botões públicos. Para acessá-lo, o funcionário deve digitar a frase secreta **"Hipopotamo quadrado robinilson de pernil"** diretamente no chat. O frontend intercepta essa mensagem e redireciona silenciosamente para a rota de login (`/admin/login`).
+O painel não possui botões públicos. Para acessá-lo, o funcionário deve digitar a frase secreta **"acesso administrativo lino esmalteria"** diretamente no chat. O frontend intercepta essa mensagem e redireciona silenciosamente para a rota de login (`/admin/login`).
 
 ### 5.2. Autenticação e Segurança
 *   **Login**: Protegido por usuário e senha (`esmalteria123` / `esmalteria@123`).
@@ -234,3 +234,43 @@ A aplicação está estruturada para ambientes *cloud-ready* com integração co
 *   `src/pages/Index.tsx` — Aviso LGPD na mensagem inicial, renderização de itálico
 *   `Banco_PI.sql` — Script SQL completo atualizado com 27 serviços
 *   `DOCUMENTACAO.md` — Documentação atualizada com todo o histórico
+
+---
+
+### 30/04/2026 (2ª atualização) — Melhorias no Banco, Renderização e Fluxos
+**Resumo**: Correção de 5 problemas reportados: schema do banco melhorado, frase secreta profissional, fix na confirmação de sinal do admin, renderização de negrito, e retry no login.
+
+**Alterações realizadas:**
+
+1.  **Melhorias no Banco de Dados (Schema)**
+    *   Adicionada coluna `preco_cobrado` na tabela `agendamentos` — armazena o preço do serviço **no momento do agendamento**, garantindo rastreabilidade mesmo se os preços mudarem no futuro.
+    *   Adicionada coluna `valor_sinal` — armazena o valor esperado do sinal (40% do preço).
+    *   Adicionada coluna `forma_pagamento` — registra o meio de pagamento (default: 'pix').
+    *   Criada tabela `funcionarios` — preparada para autenticação profissional do painel admin (id, nome, usuario, senha_hash, cargo, ativo).
+    *   Migration aplicada no Supabase e backfill dos dados existentes concluído.
+
+2.  **Frase Secreta Profissional**
+    *   A frase secreta para acessar o painel administrativo foi alterada de `"Hipopotamo quadrado robinilson de pernil"` para `"acesso administrativo lino esmalteria"`.
+    *   Profissional, discreta e impossível de ser digitada acidentalmente por um cliente.
+
+3.  **Correção da Confirmação de Sinal no Admin**
+    *   O erro ocorria porque o endpoint `/admin/confirmar-sinal` tentava buscar o preço via `servicos(preco)` FK join, mas serviços desativados retornavam `null`.
+    *   Agora o endpoint usa `preco_cobrado` da tabela `agendamentos` como fonte primária, com fallback para o join com `servicos`.
+    *   A mesma lógica foi aplicada no `_obter_agendamentos_do_dia()` do agent backend.
+
+4.  **Correção do Negrito no Frontend**
+    *   O agente usava `*texto*` (formato WhatsApp) mas o frontend só renderizava `**texto**` (formato Markdown).
+    *   **Todas** as mensagens do agente foram padronizadas para usar `**texto**` (double asterisk).
+    *   Mensagens afetadas: login, cadastro, agendamento (data, serviço, profissional, resumo, confirmação), relatório admin.
+
+5.  **Login com Retry**
+    *   Antes: se o login falhava, o fluxo era encerrado e o usuário precisava digitar "login" novamente.
+    *   Agora: o fluxo permanece ativo (`login_contato`), permitindo que o usuário tente outro e-mail ou celular imediatamente.
+    *   Se o usuário digitar "cadastrar" durante o login, é redirecionado automaticamente para o fluxo de cadastro sem precisar cancelar.
+
+**Arquivos modificados:**
+*   `agente.py` — Bold `**text**`, login retry, `preco_cobrado`, cadastro redirect no login
+*   `api.py` — Fix `/admin/confirmar-sinal` com fallback `preco_cobrado`
+*   `src/pages/Index.tsx` — Nova frase secreta profissional
+*   `Banco_PI.sql` — Novas colunas (`preco_cobrado`, `valor_sinal`, `forma_pagamento`) + tabela `funcionarios`
+*   `DOCUMENTACAO.md` — Documentação atualizada
