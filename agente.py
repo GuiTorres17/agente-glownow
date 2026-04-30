@@ -198,7 +198,16 @@ def normalizar_celular(celular):
     return re.sub(r'[^0-9]', '', celular)
 
 def calcular_duracao_servico(nome):
-    mapa = {"manicure": 45, "pedicure": 60, "esmaltação em gel": 60, "alongamento": 120}
+    mapa = {
+        "manicure": 45, "pedicure": 45, "manicure & pedicure": 75,
+        "francesinha": 15, "spa dos pés simples": 45, "spa dos pés completo": 60,
+        "banho de gel": 60, "esmaltação em gel": 30, "reconstrução": 30,
+        "aplicação de fibra de vidro": 120, "baby boomer": 30,
+        "decoração básica": 20, "par de unha encapsulada": 20,
+        "todas unhas encapsulada": 45, "reposição de unha": 30,
+        "reparo lateral": 15, "remoção de alongamento": 45,
+        "remoção + nova aplicação": 150, "manutenção": 90,
+    }
     for k, v in mapa.items():
         if k in nome.lower():
             return v
@@ -220,6 +229,7 @@ def gerar_horarios_disponiveis(data, manicure, servico):
 # COMPREENSÃO FLEXÍVEL — apelidos, erros de digitação, fuzzy match
 # ---------------------------------------------------------------------------
 APELIDOS_SERVICO = {
+    # Manicure e Pedicure
     'mao': 'manicure', 'mão': 'manicure', 'fazer a mao': 'manicure',
     'faze a mao': 'manicure', 'fazê a mão': 'manicure',
     'unha da mao': 'manicure', 'unhia': 'manicure', 'unhas mao': 'manicure',
@@ -227,15 +237,35 @@ APELIDOS_SERVICO = {
     'pe': 'pedicure', 'pé': 'pedicure', 'fazer o pe': 'pedicure',
     'faze o pe': 'pedicure', 'unha do pe': 'pedicure', 'pediqure': 'pedicure',
     'pedi': 'pedicure', 'pes': 'pedicure', 'pés': 'pedicure',
-    'spa': 'spa dos pés', 'spa pe': 'spa dos pés', 'spa pes': 'spa dos pés',
-    'relaxar': 'spa dos pés', 'hidratacao': 'spa dos pés',
-    'gel': 'esmaltação em gel', 'esmalte gel': 'esmaltação em gel',
-    'gelzinho': 'esmaltação em gel', 'esmalte': 'esmaltação em gel',
-    'alongar': 'alongamento', 'alonga': 'alongamento', 'alongar unha': 'alongamento',
-    'fibra': 'fibra de vidro', 'fibra vidro': 'fibra de vidro',
+    'mao e pe': 'manicure & pedicure', 'mão e pé': 'manicure & pedicure',
+    'combo': 'manicure & pedicure', 'os dois': 'manicure & pedicure',
     'francesa': 'francesinha', 'franceza': 'francesinha', 'francesina': 'francesinha',
-    'decorar': 'decoração', 'arte': 'decoração', 'nail art': 'decoração',
-    'desenho': 'decoração', 'decoracao': 'decoração',
+    'spa': 'spa dos pés simples', 'spa pe': 'spa dos pés simples',
+    'spa pes': 'spa dos pés simples', 'relaxar': 'spa dos pés simples',
+    'spa completo': 'spa dos pés completo', 'hidratacao': 'spa dos pés completo',
+    # Esmaltação em Gel & Banho de Gel
+    'banho de gel': 'banho de gel + esmaltação comum',
+    'gel': 'esmaltação em gel | mãos', 'esmalte gel': 'esmaltação em gel | mãos',
+    'gelzinho': 'esmaltação em gel | mãos', 'esmalte': 'esmaltação em gel | mãos',
+    'gel pe': 'esmaltação em gel | pés', 'gel pé': 'esmaltação em gel | pés',
+    'reconstrução': 'reconstrução unha do pé',
+    # Alongamento na Fibra de Vidro
+    'fibra': 'aplicação de fibra de vidro', 'fibra vidro': 'aplicação de fibra de vidro',
+    'alongar': 'aplicação de fibra de vidro', 'alonga': 'aplicação de fibra de vidro',
+    'alongar unha': 'aplicação de fibra de vidro', 'alongamento': 'aplicação de fibra de vidro',
+    'fibra gel': 'aplicação de fibra de vidro + esmaltação em gel',
+    # Decorações
+    'baby boomer': 'baby boomer', 'boomer': 'baby boomer',
+    'decorar': 'decoração básica', 'arte': 'decoração básica',
+    'nail art': 'decoração básica', 'desenho': 'decoração básica',
+    'decoracao': 'decoração básica', 'encapsulada': 'par de unha encapsulada',
+    # Serviços à Parte
+    'reposição': 'reposição de unha', 'repor': 'reposição de unha',
+    'reparo': 'reparo lateral', 'remoção': 'remoção de alongamento',
+    'remover': 'remoção de alongamento', 'tirar': 'remoção de alongamento',
+    # Manutenção
+    'manutenção': 'manutenção esmaltação comum', 'manutencao': 'manutenção esmaltação comum',
+    'retorno': 'manutenção esmaltação comum',
 }
 
 def encontrar_servico_por_texto(texto, servicos):
@@ -290,9 +320,39 @@ def obter_servicos():
     if SUPABASE_DISPONIVEL:
         return supabase.table('servicos').select('*').eq('ativo', True).execute().data
     return [
-        {'id': 1, 'categoria': "Mãos",  'nome': "Manicure",    'preco': 30.0},
-        {'id': 2, 'categoria': "Unhas", 'nome': "Alongamento", 'preco': 120.0},
-        {'id': 3, 'categoria': "Pés",   'nome': "Pedicure",    'preco': 40.0},
+        # Manicure e Pedicure
+        {'id': 1,  'categoria': 'Manicure e Pedicure', 'nome': 'Manicure',           'preco': 30.0},
+        {'id': 2,  'categoria': 'Manicure e Pedicure', 'nome': 'Pedicure',           'preco': 30.0},
+        {'id': 3,  'categoria': 'Manicure e Pedicure', 'nome': 'Manicure & Pedicure','preco': 55.0},
+        {'id': 4,  'categoria': 'Manicure e Pedicure', 'nome': 'Francesinha',        'preco': 5.0},
+        {'id': 5,  'categoria': 'Manicure e Pedicure', 'nome': 'Spa dos pés simples','preco': 30.0},
+        {'id': 6,  'categoria': 'Manicure e Pedicure', 'nome': 'Spa dos pés completo','preco': 45.0},
+        # Esmaltação em Gel & Banho de Gel
+        {'id': 7,  'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Banho de gel + esmaltação comum',       'preco': 90.0},
+        {'id': 8,  'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Banho de gel + esmaltação em gel',      'preco': 100.0},
+        {'id': 9,  'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Banho de gel + decoração simples',      'preco': 110.0},
+        {'id': 10, 'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Banho de gel + decoração encapsulada',  'preco': 115.0},
+        {'id': 11, 'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Esmaltação em Gel | mãos',             'preco': 25.0},
+        {'id': 12, 'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Esmaltação em Gel | pés',              'preco': 25.0},
+        {'id': 13, 'categoria': 'Esmaltação em Gel & Banho de Gel', 'nome': 'Reconstrução unha do pé (por unha)',   'preco': 20.0},
+        # Alongamento na Fibra de Vidro
+        {'id': 14, 'categoria': 'Alongamento na Fibra de Vidro', 'nome': 'Aplicação de fibra de vidro',              'preco': 160.0},
+        {'id': 15, 'categoria': 'Alongamento na Fibra de Vidro', 'nome': 'Aplicação de fibra de vidro + esmaltação em gel', 'preco': 170.0},
+        # Outras Decorações
+        {'id': 16, 'categoria': 'Outras Decorações', 'nome': 'Baby Boomer',                 'preco': 15.0},
+        {'id': 17, 'categoria': 'Outras Decorações', 'nome': 'Decoração básica',             'preco': 15.0},
+        {'id': 18, 'categoria': 'Outras Decorações', 'nome': 'Par de unha encapsulada',      'preco': 15.0},
+        {'id': 19, 'categoria': 'Outras Decorações', 'nome': 'Todas unhas encapsulada',      'preco': 35.0},
+        # Serviços à Parte
+        {'id': 20, 'categoria': 'Serviços à Parte', 'nome': 'Reposição de unha',             'preco': 15.0},
+        {'id': 21, 'categoria': 'Serviços à Parte', 'nome': 'Reparo lateral',                'preco': 5.0},
+        {'id': 22, 'categoria': 'Serviços à Parte', 'nome': 'Remoção de alongamento',        'preco': 35.0},
+        {'id': 23, 'categoria': 'Serviços à Parte', 'nome': 'Remoção + nova aplicação',      'preco': 190.0},
+        # Manutenção
+        {'id': 24, 'categoria': 'Manutenção', 'nome': 'Manutenção esmaltação comum',           'preco': 90.0},
+        {'id': 25, 'categoria': 'Manutenção', 'nome': 'Manutenção esmaltação em gel',          'preco': 100.0},
+        {'id': 26, 'categoria': 'Manutenção', 'nome': 'Manutenção de outro profissional',     'preco': 110.0},
+        {'id': 27, 'categoria': 'Manutenção', 'nome': 'Manutenção com mais de 30 dias',       'preco': 120.0},
     ]
 
 def obter_manicures():
@@ -445,10 +505,12 @@ class MotorDialogo:
                     else:
                         resposta_texto = (
                             "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\n"
+                            "Eu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\n"
                             "Pra eu te atender melhor, me conta: você já tem cadastro aqui com a gente?\n\n"
                             "✅ Se sim, me fala **login**\n"
                             "🆕 Se é sua primeira vez, me fala **cadastrar**\n\n"
-                            "Ou se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅"
+                            "Ou se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅\n\n"
+                            "_Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados._"
                         )
 
                 elif any(p in mensagem_lower for p in ['obrigad']):
@@ -483,10 +545,21 @@ class MotorDialogo:
     # ---------------------------------------------------------------------------
     def _mostrar_servicos(self):
         servicos = obter_servicos()
-        resp = "Olha só o que a gente oferece 💅\n\n"
+        # Agrupar por categoria para exibição organizada
+        categorias = {}
         for s in servicos:
-            resp += f"• {s['nome']} — R$ {s['preco']:.2f}\n"
-        resp += "\nSe interessou por algum? É só me falar **agendar** que eu te ajudo a marcar! 😉"
+            cat = s.get('categoria', 'Outros')
+            if cat not in categorias:
+                categorias[cat] = []
+            categorias[cat].append(s)
+
+        resp = "Olha só o que a gente oferece 💅✨\n\n"
+        for cat, itens in categorias.items():
+            resp += f"*{cat}*\n"
+            for s in itens:
+                resp += f"  • {s['nome']} — R$ {s['preco']:.2f}\n"
+            resp += "\n"
+        resp += "Se interessou por algum? É só me falar **agendar** que eu te ajudo a marcar! 😉"
         return resp
 
     # --- LOGIN ---

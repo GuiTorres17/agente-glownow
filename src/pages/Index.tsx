@@ -19,7 +19,7 @@ const initialMessages: Msg[] = [
   {
     id: 1,
     from: "them",
-    text: "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\nEu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\nPra começar, me conta: você já tem cadastro aqui com a gente?\n\n✅ Se sim, me fala **login**\n🆕 Se é sua primeira vez, me fala **cadastrar**\n\nOu se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅",
+    text: "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\nEu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\nPra começar, me conta: você já tem cadastro aqui com a gente?\n\n✅ Se sim, me fala **login**\n🆕 Se é sua primeira vez, me fala **cadastrar**\n\nOu se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅\n\n_Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados._",
     time: nowTimeStatic(),
   },
 ];
@@ -63,7 +63,7 @@ const PixBlock = ({ code }: { code: string }) => {
   );
 };
 
-/* ---------- Render text with bold + PIX blocks ---------- */
+/* ---------- Render text with bold + italic + PIX blocks ---------- */
 const renderMessageContent = (text: string) => {
   // Split by {{PIX:...}} markers
   const pixParts = text.split(/(\{\{PIX:[^}]+\}\})/g);
@@ -72,14 +72,22 @@ const renderMessageContent = (text: string) => {
     if (pixMatch) {
       return <PixBlock key={`pix-${si}`} code={pixMatch[1]} />;
     }
-    // Render bold markdown
-    return segment.split(/(\*\*[^*]+\*\*)/).map((part, pi) =>
-      part.startsWith("**") && part.endsWith("**") ? (
-        <strong key={`${si}-${pi}`} className="font-semibold">{part.slice(2, -2)}</strong>
-      ) : (
+    // Render bold and italic markdown
+    return segment.split(/(\*\*[^*]+\*\*|_[^_]+_)/).map((part, pi) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={`${si}-${pi}`} className="font-semibold">{part.slice(2, -2)}</strong>
+        );
+      }
+      if (part.startsWith("_") && part.endsWith("_") && part.length > 2) {
+        return (
+          <em key={`${si}-${pi}`} className="text-[11px] text-gray-400 not-italic block mt-2">{part.slice(1, -1)}</em>
+        );
+      }
+      return (
         <span key={`${si}-${pi}`}>{part}</span>
-      )
-    );
+      );
+    });
   });
 };
 
