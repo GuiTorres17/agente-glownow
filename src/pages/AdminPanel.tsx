@@ -52,7 +52,7 @@ const AdminPanel = () => {
       if (res.status === 401) { localStorage.removeItem("admin_token"); navigate("/admin/login"); return; }
       if (!res.ok) throw new Error("Erro ao carregar dados");
       setDashboard(await res.json());
-    } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+    } catch (err) { setError((err as Error).message); } finally { setLoading(false); }
   }, [token, navigate, selectedDate, authHeaders]);
 
   const fetchMonth = useCallback(async (month?: number, year?: number) => {
@@ -65,7 +65,7 @@ const AdminPanel = () => {
       if (res.status === 401) { localStorage.removeItem("admin_token"); navigate("/admin/login"); return; }
       if (!res.ok) throw new Error("Erro ao carregar dados mensais");
       setMonthly(await res.json());
-    } catch (err: any) { setError(err.message); } finally { setLoading(false); }
+    } catch (err) { setError((err as Error).message); } finally { setLoading(false); }
   }, [token, navigate, selectedDate, authHeaders]);
 
   useEffect(() => {
@@ -88,7 +88,7 @@ const AdminPanel = () => {
   };
 
   const handleLogout = async () => {
-    try { await fetch(`${AGENT_BASE}/admin/logout`, { method: "POST", headers: authHeaders() }); } catch {}
+    try { await fetch(`${AGENT_BASE}/admin/logout`, { method: "POST", headers: authHeaders() }); } catch (err) { console.error(err); }
     localStorage.removeItem("admin_token"); navigate("/");
   };
 
@@ -107,7 +107,7 @@ const AdminPanel = () => {
       setSuccessMsg(`✅ Sinal de R$ ${data.sinal_pago?.toFixed(2) || '0.00'} confirmado com sucesso!`);
       setTimeout(() => setSuccessMsg(""), 4000);
       await fetchDay();
-    } catch (err: any) { setError(err.message); } finally { setConfirmandoId(null); }
+    } catch (err) { setError((err as Error).message); } finally { setConfirmandoId(null); }
   };
 
   const now = new Date();

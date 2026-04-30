@@ -36,8 +36,8 @@ const AdminLogin = () => {
       } else {
         throw new Error("Resposta inválida do servidor");
       }
-    } catch (err: any) {
-      setError(err.message || "Erro ao conectar com o servidor");
+    } catch (err) {
+      setError((err as Error).message || "Erro ao conectar com o servidor");
     } finally {
       setLoading(false);
     }
