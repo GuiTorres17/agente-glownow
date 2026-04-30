@@ -274,3 +274,121 @@ A aplicação está estruturada para ambientes *cloud-ready* com integração co
 *   `src/pages/Index.tsx` — Nova frase secreta profissional
 *   `Banco_PI.sql` — Novas colunas (`preco_cobrado`, `valor_sinal`, `forma_pagamento`) + tabela `funcionarios`
 *   `DOCUMENTACAO.md` — Documentação atualizada
+
+---
+
+### 30/04/2026 (3ª atualização) — Segurança, Governança e Refatoração Completa
+**Resumo**: Refatoração do banco de dados, implementação de RBAC/RLS, criptografia de dados sensíveis com pgcrypto, sistema de auditoria com triggers, e correção de 4 bugs críticos.
+
+**Alterações realizadas:**
+
+#### PARTE 1 — Correção de Bugs e Refatoração
+
+1.  **Tabela `conversas` → `historico_conversas`**
+    *   **Problema**: A tabela `conversas` existia no banco mas **nunca era utilizada** — o histórico era salvo apenas em memória (dict Python), perdido a cada restart do servidor.
+    *   **Fix**: DROP da tabela antiga + criação de `historico_conversas` com schema adequado (`sessao_id`, `cliente_id`, `mensagem_usuario`, `resposta_agente`, `intencao_detectada`, `criado_em`).
+    *   O método `AssistenteIA.adicionar_ao_historico()` agora persiste cada troca de mensagem no Supabase em tempo real.
+
+2.  **DROP de tabelas redundantes**
+    *   Tabela `funcionarios`: criada na migration anterior mas **nunca utilizada** (auth é hardcoded na API). Sem FKs dependentes → DROP seguro.
+    *   Tabela `estoque`: nunca populada, sem queries referenciando. Sem FKs dependentes → DROP seguro.
+    *   Referência `self.funcionario` removida da classe `SessaoCliente`.
+
+3.  **Fix do botão "Confirmar Sinal" no painel admin**
+    *   **Causa raiz**: Agendamentos legados tinham `preco_cobrado = 0` e `sinal_pago = 0` com `status = 'confirmado'`, criando inconsistência onde o frontend mostrava "Aguardando" mas o backend já marcava como confirmado.
+    *   **Fix**: Nova coluna `sinal_confirmado BOOLEAN` distingue entre "agendamento criado pelo chat" e "sinal verificado pelo admin".
+    *   O endpoint `/admin/confirmar-sinal` agora seta `sinal_confirmado = TRUE`, e o frontend usa esse flag para renderizar o badge verde.
+    *   Adicionado feedback visual (toast verde) no sucesso e mensagem de erro detalhada na falha.
+    *   Backfill aplicado: agendamentos com `sinal_pago > 0` receberam `sinal_confirmado = TRUE`, e os com `preco_cobrado = 0` foram corrigidos.
+
+4.  **UX do bot — Texto e fluxo de identificação**
+    *   Frase alterada: `"Se sim, me fala login"` → `"Se sim, faça login"` (mais direto e natural).
+    *   Novo estado `aguardando_identificacao`: Após a mensagem de boas-vindas, o sistema aguarda ativamente a resposta do usuário e roteia automaticamente:
+        - "sim", "já", "tenho" → inicia login
+        - "não", "nova", "primeira vez" → inicia cadastro
+        - "login", "cadastrar", "serviços", "agendar" → ação correspondente
+    *   Frontend (Index.tsx) atualizado com o novo texto.
+
+---
+
+## 9. Segurança e Governança (Implementado em 30/04/2026)
+
+### 9.1. Controle de Acesso — RBAC + RLS
+
+O sistema implementa **Role-Based Access Control** (RBAC) combinado com **Row Level Security** (RLS) do Supabase/PostgreSQL.
+
+**Roles definidos:**
+| Role | Escopo | Tabelas |
+|---|---|---|
+| `admin` | Acesso total a todas as tabelas e operações | agendamentos, clientes, servicos, manicures, audit_logs |
+| `manicure` | Leitura dos próprios agendamentos e dados limitados | agendamentos (filtrado), servicos (read), clientes (read) |
+| `anon` | Acesso público mínimo via API | servicos (read), manicures (read), clientes (insert), historico_conversas (insert) |
+
+**Coluna `role` na tabela `manicures`**: Cada manicure possui um campo `role` com constraint `CHECK (role IN ('admin', 'manicure'))`. A primeira manicure cadastrada é automaticamente definida como `admin`.
+
+**Políticas RLS aplicadas:**
+*   `agendamentos`: SELECT/INSERT/UPDATE para `anon` e `authenticated`; DELETE somente `authenticated`
+*   `clientes`: SELECT/INSERT/UPDATE para `anon` e `authenticated`
+*   `servicos`: SELECT para todos; gerenciamento completo para `authenticated`
+*   `manicures`: SELECT para todos; gerenciamento completo para `authenticated`
+*   `historico_conversas`: INSERT para todos; SELECT para `anon` e `authenticated`
+*   `audit_logs`: SELECT para `authenticated`; INSERT para todos (via triggers)
+
+### 9.2. Criptografia — Data at Rest com pgcrypto
+
+A extensão **pgcrypto** (v1.3) foi configurada para criptografia simétrica dos dados sensíveis dos clientes.
+
+**Implementação:**
+*   Coluna `celular_encrypted` (BYTEA) na tabela `clientes`
+*   Criptografia via `pgp_sym_encrypt()` com chave simétrica centralizada em `get_encryption_key()`
+*   Descriptografia via `pgp_sym_decrypt()` pela view `vw_clientes_decrypted`
+*   Funções RPC seguras (`SECURITY DEFINER`):
+    *   `encrypt_celular(phone TEXT)` → BYTEA criptografado
+    *   `decrypt_celular(encrypted_phone BYTEA)` → TEXT descriptografado
+    *   `get_encryption_key()` → centraliza a chave (facilita rotação futura)
+*   Todos os celulares existentes foram criptografados durante a migration
+*   Novos cadastros criptografam automaticamente via RPC
+
+### 9.3. Auditoria — Rastreabilidade com Triggers
+
+Sistema de auditoria automática via triggers PostgreSQL.
+
+**Tabela `audit_logs`:**
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `tabela_afetada` | VARCHAR | Nome da tabela (ex: `agendamentos`) |
+| `acao` | VARCHAR | `INSERT`, `UPDATE` ou `DELETE` |
+| `registro_id` | INTEGER | ID do registro afetado |
+| `dados_antigos` | JSONB | Snapshot antes da operação (NULL em INSERT) |
+| `dados_novos` | JSONB | Snapshot após a operação (NULL em DELETE) |
+| `executado_por` | VARCHAR | Quem executou (default: `system`) |
+| `criado_em` | TIMESTAMP | Data/hora da operação |
+
+**Triggers ativos:**
+*   `trg_audit_agendamentos` → INSERT, UPDATE, DELETE em `agendamentos`
+*   `trg_audit_clientes` → INSERT, UPDATE em `clientes`
+
+**Função genérica `fn_audit_trigger()`**: PL/pgSQL `SECURITY DEFINER` reutilizável em qualquer tabela.
+
+### 9.4. Schema Atual do Banco (v3.0)
+
+| Tabela | Status | Descrição |
+|---|---|---|
+| `clientes` | ✅ Ativa | Dados dos clientes com celular criptografado |
+| `manicures` | ✅ Ativa | Profissionais com campo `role` (RBAC) |
+| `servicos` | ✅ Ativa | Catálogo de 27 serviços em 6 categorias |
+| `agendamentos` | ✅ Ativa | Com `preco_cobrado`, `valor_sinal`, `sinal_confirmado` |
+| `historico_conversas` | ✅ Nova | Histórico persistente de mensagens |
+| `audit_logs` | ✅ Nova | Logs de auditoria automáticos |
+| `funcionarios` | ❌ Removida | Substituída por `manicures.role` |
+| `estoque` | ❌ Removida | Fora de escopo |
+| `conversas` | ❌ Removida | Substituída por `historico_conversas` |
+
+**Arquivos modificados (3ª atualização):**
+*   `agente.py` — Persistência do histórico, `aguardando_identificacao`, UX text, criptografia, `sinal_confirmado`
+*   `api.py` — Endpoint `/admin/confirmar-sinal` reescrito com `sinal_confirmado` + log
+*   `src/pages/Index.tsx` — Texto "faça login", frontend sincronizado
+*   `src/pages/AdminPanel.tsx` — `sinal_confirmado` flag, toast de sucesso, feedback visual
+*   `Banco_PI.sql` — Schema v3.0 completo (6 tabelas, triggers, funções, view)
+*   `DOCUMENTACAO.md` — Documentação completa com arquitetura de segurança
+

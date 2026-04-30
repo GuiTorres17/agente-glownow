@@ -19,7 +19,7 @@ const initialMessages: Msg[] = [
   {
     id: 1,
     from: "them",
-    text: "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\nEu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\nPra começar, me conta: você já tem cadastro aqui com a gente?\n\n✅ Se sim, me fala **login**\n🆕 Se é sua primeira vez, me fala **cadastrar**\n\nOu se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅\n\n_Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados._",
+    text: "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\nEu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\nPra eu te atender melhor, me conta: você já tem cadastro aqui com a gente?\n\n✅ Se sim, faça **login**\n🆕 Se é sua primeira vez, me fala **cadastrar**\n\nOu se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅\n\n_Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados._",
     time: nowTimeStatic(),
   },
 ];

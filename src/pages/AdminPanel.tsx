@@ -12,7 +12,7 @@ const AGENT_BASE = (import.meta.env.VITE_AGENT_URL || "http://localhost:8000/cha
 type Agendamento = {
   id: number; horario: string; cliente_nome: string; cliente_cel: string;
   servico_nome: string; servico_preco: number; manicure_nome: string;
-  status: string; sinal_pago: number;
+  status: string; sinal_pago: number; sinal_confirmado?: boolean;
 };
 
 type DashboardData = {
@@ -39,6 +39,7 @@ const AdminPanel = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirmandoId, setConfirmandoId] = useState<number | null>(null);
+  const [successMsg, setSuccessMsg] = useState("");
 
   const authHeaders = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -94,12 +95,17 @@ const AdminPanel = () => {
   const handleConfirmarSinal = async (id: number) => {
     if (!token) return;
     setConfirmandoId(id);
+    setError("");
+    setSuccessMsg("");
     try {
       const res = await fetch(`${AGENT_BASE}/admin/confirmar-sinal`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ agendamento_id: id }),
       });
-      if (!res.ok) throw new Error("Erro ao confirmar sinal");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Erro ao confirmar sinal");
+      setSuccessMsg(`✅ Sinal de R$ ${data.sinal_pago?.toFixed(2) || '0.00'} confirmado com sucesso!`);
+      setTimeout(() => setSuccessMsg(""), 4000);
       await fetchDay();
     } catch (err: any) { setError(err.message); } finally { setConfirmandoId(null); }
   };
@@ -189,6 +195,12 @@ const AdminPanel = () => {
           </div>
         )}
 
+        {successMsg && (
+          <div className="mb-5 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2 animate-fade-in-up">
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />{successMsg}
+          </div>
+        )}
+
         {/* Date navigator */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -239,7 +251,7 @@ const AdminPanel = () => {
               ) : (
                 <div className="divide-y divide-white/[0.04]">
                   {dashboard.agendamentos.map((a) => {
-                    const isPago = a.sinal_pago && a.sinal_pago > 0;
+                    const isPago = a.sinal_confirmado || (a.sinal_pago && a.sinal_pago > 0);
                     return (
                       <div key={a.id} className="px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6 hover:bg-white/[0.02] transition-colors">
                         <div className="flex items-center gap-3 min-w-0">

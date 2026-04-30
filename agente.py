@@ -136,7 +136,7 @@ class AssistenteIA:
             ],
         }
 
-    def adicionar_ao_historico(self, cliente_id, mensagem, resposta):
+    def adicionar_ao_historico(self, cliente_id, mensagem, resposta, sessao_id="web"):
         if cliente_id not in self.historico_conversas:
             self.historico_conversas[cliente_id] = []
         self.historico_conversas[cliente_id].append({
@@ -144,6 +144,18 @@ class AssistenteIA:
             'resposta':  resposta,
             'timestamp': datetime.datetime.now().isoformat(),
         })
+        # Persistir no Supabase
+        if SUPABASE_DISPONIVEL:
+            try:
+                supabase.table('historico_conversas').insert({
+                    'sessao_id': sessao_id,
+                    'cliente_id': cliente_id if cliente_id != 'anonimo' else None,
+                    'mensagem_usuario': mensagem,
+                    'resposta_agente': resposta,
+                    'intencao_detectada': None,
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Erro ao salvar histórico no Supabase: {e}")
 
     def gerar_resposta(self, mensagem, contexto=None, cliente=None):
         cliente_id = cliente['id'] if cliente else "anonimo"
@@ -385,12 +397,11 @@ class SessaoCliente:
     def __init__(self, session_id):
         self.session_id       = session_id
         self.cliente          = None
-        self.funcionario      = None
         self.estado_fluxo     = None
         self.dados_agendamento = {}
         self.dados_cadastro   = {}
         self.dados_admin      = {}   # dados temporários do painel admin
-        self.is_admin         = False # flag para sessões de funcionário
+        self.is_admin         = False # flag para sessões administrativas
 
 
 class MotorDialogo:
@@ -435,7 +446,34 @@ class MotorDialogo:
             # -------------------------------------------------------------------
             # Roteamento por estado — fluxo guiado (sem IA no meio dos fluxos)
             # -------------------------------------------------------------------
-            if sessao.estado_fluxo == "login_contato":
+            if sessao.estado_fluxo == "aguardando_identificacao":
+                # Após a saudação, o sistema espera: login, cadastrar, serviços ou qualquer input
+                if any(p in mensagem_lower for p in assistente_ia.intencoes_login):
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_login(sessao)
+                elif any(p in mensagem_lower for p in assistente_ia.intencoes_cadastro):
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_cadastro(sessao)
+                elif any(p in mensagem_lower for p in assistente_ia.intencoes_servicos):
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._mostrar_servicos()
+                elif any(p in mensagem_lower for p in assistente_ia.intencoes_agendamento):
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_agendamento(sessao)
+                elif mensagem_lower in ['sim', 's', 'ja', 'já', 'tenho']:
+                    # Se responder "sim", assume que já tem cadastro → login
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_login(sessao)
+                elif mensagem_lower in ['não', 'nao', 'n', 'no', 'primeira vez', 'nova']:
+                    # Se responder "não", assume que é nova → cadastro
+                    sessao.estado_fluxo = None
+                    resposta_texto = self._iniciar_cadastro(sessao)
+                else:
+                    # Qualquer outra coisa, reseta e passa pro fluxo normal
+                    sessao.estado_fluxo = None
+                    resposta_texto = assistente_ia.gerar_resposta(mensagem, cliente=sessao.cliente)
+
+            elif sessao.estado_fluxo == "login_contato":
                 # Se o usuário digitar "cadastrar" durante o login, redireciona para cadastro
                 if any(p in mensagem_lower for p in assistente_ia.intencoes_cadastro):
                     sessao.estado_fluxo = None
@@ -508,11 +546,12 @@ class MotorDialogo:
                         resposta_texto = assistente_ia.gerar_resposta(
                             mensagem, contexto="saudacao", cliente=sessao.cliente)
                     else:
+                        sessao.estado_fluxo = "aguardando_identificacao"
                         resposta_texto = (
                             "Oii, tudo bem? Seja bem-vinda à Lino Esmalteria! 💖\n\n"
                             "Eu sou a Lina, sua assistente virtual. Estou aqui pra te ajudar!\n\n"
                             "Pra eu te atender melhor, me conta: você já tem cadastro aqui com a gente?\n\n"
-                            "✅ Se sim, me fala **login**\n"
+                            "✅ Se sim, faça **login**\n"
                             "🆕 Se é sua primeira vez, me fala **cadastrar**\n\n"
                             "Ou se quiser só dar uma olhadinha, posso te mostrar nossos **serviços** 💅\n\n"
                             "_Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados._"
@@ -872,7 +911,15 @@ class MotorDialogo:
             dados_insert['celular'] = d['celular']
         try:
             if SUPABASE_DISPONIVEL:
-                logger.info(f"Tentando cadastrar cliente: {dados_insert}")
+                # Criptografar celular se fornecido
+                if d.get('celular'):
+                    try:
+                        enc_res = supabase.rpc('encrypt_celular', {'phone': d['celular']}).execute()
+                        if enc_res.data:
+                            dados_insert['celular_encrypted'] = enc_res.data
+                    except Exception as enc_err:
+                        logger.warning(f"Erro ao criptografar celular: {enc_err}")
+                logger.info(f"Tentando cadastrar cliente: {d['nome']}")
                 res = supabase.table('clientes').insert(dados_insert).execute()
                 logger.info(f"Resposta do Supabase: {res}")
                 if res.data:
@@ -936,6 +983,7 @@ class MotorDialogo:
                         'manicure_nome': a.get('manicures', {}).get('nome', 'N/A') if a.get('manicures') else 'N/A',
                         'status':        a.get('status', 'pendente'),
                         'sinal_pago':    a.get('sinal_pago', 0),
+                        'sinal_confirmado': a.get('sinal_confirmado', False),
                     })
                 return agendamentos, data_str
             except Exception as e:

@@ -210,13 +210,13 @@ def admin_confirmar_sinal(
     payload: ConfirmarSinalPayload,
     authorization: str | None = Header(default=None),
 ):
-    """Confirma o sinal de um agendamento."""
+    """Confirma o recebimento do sinal de um agendamento."""
     extrair_token(authorization)
 
     if SUPABASE_DISPONIVEL:
         from agente import supabase
         try:
-            # Buscar agendamento — usa preco_cobrado (armazenado no momento do booking)
+            # Buscar agendamento com dados de preço
             res = supabase.table('agendamentos') \
                 .select('*, servicos(preco)') \
                 .eq('id', payload.agendamento_id) \
@@ -227,20 +227,23 @@ def admin_confirmar_sinal(
 
             agendamento = res.data[0]
 
-            # Prioridade: preco_cobrado > servicos.preco > fallback 0
+            # Calcular sinal: preco_cobrado > valor_sinal > servicos.preco > 0
             preco = agendamento.get('preco_cobrado') or 0
             if not preco and agendamento.get('servicos'):
                 preco = agendamento['servicos'].get('preco', 0)
 
-            sinal_valor = preco * 0.4
+            sinal_valor = agendamento.get('valor_sinal') or (preco * 0.4)
 
+            # Atualizar: sinal pago + flag de confirmação manual
             supabase.table('agendamentos').update({
                 'sinal_pago': sinal_valor,
                 'valor_sinal': sinal_valor,
+                'sinal_confirmado': True,
                 'status': 'confirmado',
             }).eq('id', payload.agendamento_id).execute()
 
-            return {"success": True, "sinal_pago": sinal_valor}
+            logger.info(f"Sinal confirmado manualmente: agendamento #{payload.agendamento_id} → R$ {sinal_valor:.2f}")
+            return {"success": True, "sinal_pago": sinal_valor, "sinal_confirmado": True}
         except HTTPException:
             raise
         except Exception as e:
@@ -248,7 +251,7 @@ def admin_confirmar_sinal(
             raise HTTPException(status_code=500, detail=f"Erro ao confirmar sinal: {str(e)}")
     else:
         # Modo demo
-        return {"success": True, "sinal_pago": 12.0, "demo": True}
+        return {"success": True, "sinal_pago": 12.0, "sinal_confirmado": True, "demo": True}
 
 
 @app.post("/admin/atualizar-status")
