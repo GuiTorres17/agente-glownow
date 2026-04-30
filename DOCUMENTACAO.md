@@ -37,31 +37,108 @@ Um dos fluxos mais completos é o de agendamento de horários:
 3.  **Sinal e PIX Copia-e-Cola**: Antes de finalizar, o sistema calcula **40% do valor do serviço** como sinal (pré-pagamento obrigatório). O bot gera e exibe um código PIX Copia e Cola simulado.
 4.  **Validação de Pagamento**: O bot aguarda o usuário digitar "pago" (ou similar) para então gravar o agendamento como *Confirmado* no banco de dados.
 
+### 2.4. Aviso de Consentimento (LGPD)
+Na primeira mensagem de boas-vindas ao usuário, o agente exibe um aviso de consentimento sutil:
+> _"Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados."_
+
+Este aviso está presente tanto no **backend** (resposta da saudação no `agente.py`) quanto no **frontend** (mensagem inicial estática no `Index.tsx`), garantindo que o usuário sempre veja o aviso independentemente de como a conversa começou. O texto é renderizado em formato _itálico_ com tamanho e cor sutis para não poluir a interface.
+
 ---
 
-## 3. Frontend (Interface do Usuário)
+## 3. Tabela de Serviços e Preços (Atualizado em 30/04/2026)
+
+A tabela de serviços foi completamente atualizada para refletir o catálogo oficial da **Maisa Lino Esmalteria**. Os serviços estão organizados em **6 categorias**:
+
+### 3.1. Manicure e Pedicure
+| Serviço | Preço |
+|---|---|
+| Manicure | R$ 30,00 |
+| Pedicure | R$ 30,00 |
+| Manicure & Pedicure | R$ 55,00 |
+| Francesinha | R$ 5,00 |
+| Spa dos pés simples | R$ 30,00 |
+| Spa dos pés completo | R$ 45,00 |
+
+### 3.2. Esmaltação em Gel & Banho de Gel
+*Camada de gel nas unhas naturais formando uma película protetora para evitar quebras. Inclui cutilagem.*
+
+| Serviço | Preço |
+|---|---|
+| Banho de gel + esmaltação comum | R$ 90,00 |
+| Banho de gel + esmaltação em gel | R$ 100,00 |
+| Banho de gel + decoração simples | R$ 110,00 |
+| Banho de gel + decoração encapsulada | R$ 115,00 |
+| Esmaltação em Gel \| mãos | R$ 25,00 |
+| Esmaltação em Gel \| pés | R$ 25,00 |
+| Reconstrução unha do pé (por unha) | R$ 20,00 |
+
+### 3.3. Alongamento na Fibra de Vidro
+*Alongamento nos formatos Almond, Bailarina e Quadrado.*
+
+| Serviço | Preço |
+|---|---|
+| Aplicação de fibra de vidro | R$ 160,00 |
+| Aplicação de fibra de vidro + esmaltação em gel | R$ 170,00 |
+
+### 3.4. Outras Decorações
+*Outras opções que temos no estúdio para diferenciar o seu alongamento.*
+
+| Serviço | Preço |
+|---|---|
+| Baby Boomer | R$ 15,00 |
+| Decoração básica | R$ 15,00 |
+| Par de unha encapsulada | R$ 15,00 |
+| Todas unhas encapsulada | R$ 35,00 |
+
+### 3.5. Serviços à Parte
+*Serviços à parte feitos dentro e fora do dia da manutenção.*
+
+| Serviço | Preço |
+|---|---|
+| Reposição de unha | R$ 15,00 |
+| Reparo lateral | R$ 5,00 |
+| Remoção de alongamento | R$ 35,00 |
+| Remoção + nova aplicação | R$ 190,00 |
+
+### 3.6. Manutenção
+*Recomendamos no máximo de 30 dias para o retorno.*
+
+| Serviço | Preço |
+|---|---|
+| Manutenção esmaltação comum | R$ 90,00 |
+| Manutenção esmaltação em gel | R$ 100,00 |
+| Manutenção de outro profissional | R$ 110,00 |
+| Manutenção com mais de 30 dias | R$ 120,00 |
+
+---
+
+## 4. Frontend (Interface do Usuário)
 
 O Frontend foi completamente reestruturado para ser um projeto Vite/React padrão de mercado.
 
 *   **Páginas Principais**: A página `Index.tsx` abriga a interface principal do chat. Ela se comunica ativamente com a API do FastAPI via requisições HTTP (POST).
 *   **Componentes de UI**: Adotamos bibliotecas robustas de acessibilidade e design (`@radix-ui`) empacotadas via Shadcn UI, garantindo uma estética *premium*, rápida e minimalista, sem sacrificar a funcionalidade. Ícones dinâmicos utilizam a biblioteca **Lucide React**.
 *   **Gerenciamento de Estado do Chat**: As mensagens e o histórico do chat em tempo real são gerenciados localmente no React, exibindo indicadores de digitação (typing) quando o backend está processando uma resposta.
+*   **Renderização de Markdown no Chat**: O componente `renderMessageContent` suporta:
+    *   **Negrito** (`**texto**`) — renderizado como `<strong>`
+    *   **Itálico** (`_texto_`) — renderizado como `<em>` com estilo sutil (cinza, 11px), usado para o aviso de consentimento LGPD
+    *   **PIX QR Code** (`{{PIX:código}}`) — renderizado como bloco visual com QR Code e botão de copiar
 
 ---
 
-## 4. Painel Administrativo Secreto
+## 5. Painel Administrativo Secreto
 
 Para garantir segurança e separar a interface do cliente da interface de gestão dos funcionários, foi implementado um **Painel Administrativo protegido e invisível** para o público em geral.
 
-### 4.1. Gatilho Secreto (Easter Egg)
+### 5.1. Gatilho Secreto (Easter Egg)
 O painel não possui botões públicos. Para acessá-lo, o funcionário deve digitar a frase secreta **"Hipopotamo quadrado robinilson de pernil"** diretamente no chat. O frontend intercepta essa mensagem e redireciona silenciosamente para a rota de login (`/admin/login`).
 
-### 4.2. Autenticação e Segurança
+### 5.2. Autenticação e Segurança
 *   **Login**: Protegido por usuário e senha (`esmalteria123` / `esmalteria@123`).
 *   **Tokens (JWT-like)**: O backend (FastAPI) gera um token seguro (`secrets.token_hex`) com expiração de 8 horas. Esse token é armazenado no `localStorage` e exigido em todas as requisições de dashboard.
 *   **Restrição no Chat Público**: Intenções de admin (ex: "ver agenda", "relatório") foram bloqueadas no agente público. Clientes não podem acessar dados administrativos via IA.
 
-### 4.3. Dashboard Visual e Funcionalidades
+### 5.3. Dashboard Visual e Funcionalidades
 O painel foi construído em React com um visual *dark premium* (glassmorphism via Tailwind CSS) e é dividido em duas visões principais usando **React Router**:
 *   **Visão Diária**:
     *   Exibe KPIs em tempo real (Faturamento Previsto, Confirmados, Pendentes, Total de Clientes).
@@ -76,9 +153,9 @@ O painel foi construído em React com um visual *dark premium* (glassmorphism vi
 
 ---
 
-## 5. Integrações Externas e Tecnologias Usadas
+## 6. Integrações Externas e Tecnologias Usadas
 
-### 5.1. Ferramentas e Bibliotecas Utilizadas (Full Stack)
+### 6.1. Ferramentas e Bibliotecas Utilizadas (Full Stack)
 
 **Frontend (React/Vite ecosystem):**
 *   **React (v18)** + **TypeScript**: Base estrutural garantindo tipagem forte e componentização.
@@ -100,13 +177,13 @@ O painel foi construído em React com um visual *dark premium* (glassmorphism vi
 *   **Fuzzbook** / `fuzzywuzzy` / Algoritmos de Fuzzy Match: Usados na "inteligência" determinística do agente para identificar aproximações textuais dos nomes dos serviços e manicures.
 *   **Python-dotenv**: Gerenciamento seguro das credenciais via arquivo `.env`.
 
-### 5.2. Serviços de Backend e Nuvem
+### 6.2. Serviços de Backend e Nuvem
 *   **Supabase**: Banco de dados PostgreSQL escalável integrado nativamente. Usado via MCP Servers e cliente Python.
 *   **Google Gemini API (1.5 Flash)**: O "cérebro" do assistente, garantindo respostas rápidas, precisas e humanizadas, com baixo risco de alucinação e altíssima compreensão de contexto (fuzzy logic natural).
 
 ---
 
-## 6. Processo de Deploy (Produção)
+## 7. Processo de Deploy (Produção)
 
 A aplicação está estruturada para ambientes *cloud-ready* com integração contínua (CI/CD):
 
@@ -117,3 +194,43 @@ A aplicação está estruturada para ambientes *cloud-ready* com integração co
     *   A interface React é construída (`npm run build`) via Vercel. 
     *   **SPA Routing**: Implementamos um `vercel.json` (`rewrites` para `/index.html`) para garantir que as rotas secretas do React Router (`/admin/login`) não retornem erro 404 ao serem acessadas diretamente.
     *   O frontend consome a URL de produção do Render via `VITE_AGENT_URL`.
+
+---
+
+## 8. Histórico de Atualizações
+
+### 30/04/2026 — Atualização da Tabela de Preços e Consentimento LGPD
+**Resumo**: Atualização completa do catálogo de serviços para refletir a tabela oficial da Maisa Lino Esmalteria e adição de aviso de consentimento de dados.
+
+**Alterações realizadas:**
+
+1.  **Atualização da tabela de serviços (27 serviços em 6 categorias)**
+    *   Os 8 serviços antigos (Manicure R$30, Pedicure R$40, Esmaltação em Gel R$60, Alongamento R$120, Fibra de Vidro R$110, Spa dos Pés R$65, Francesinha R$45, Decoração R$15) foram **desativados** no Supabase e substituídos por 27 novos serviços organizados nas categorias: Manicure e Pedicure, Esmaltação em Gel & Banho de Gel, Alongamento na Fibra de Vidro, Outras Decorações, Serviços à Parte, e Manutenção.
+    *   Os preços agora variam de R$ 5,00 (Francesinha, Reparo lateral) até R$ 190,00 (Remoção + nova aplicação).
+
+2.  **Aviso de Consentimento LGPD**
+    *   Adicionado aviso sutil na primeira mensagem de boas-vindas: *"Ao continuar conversando comigo para realizar seu agendamento, você concorda com os nossos termos de uso de dados."*
+    *   Implementado tanto no backend (`agente.py`) quanto no frontend (`Index.tsx`).
+    *   O frontend renderiza o aviso em texto itálico cinza claro (11px) para ser visível mas não intrusivo.
+
+3.  **Exibição de serviços agrupada por categoria**
+    *   O método `_mostrar_servicos()` foi refatorado para agrupar e exibir os serviços por categoria, tornando a lista organizada e legível mesmo com 27 itens.
+
+4.  **Atualização de apelidos e fuzzy match**
+    *   O dicionário `APELIDOS_SERVICO` foi expandido significativamente para cobrir todos os novos nomes de serviço com apelidos coloquiais (ex: "fibra gel" → fibra de vidro + gel, "boomer" → baby boomer, "combo" → manicure & pedicure).
+
+5.  **Renderização de itálico no frontend**
+    *   O componente `renderMessageContent` agora suporta markdown itálico (`_texto_`) além do negrito (`**texto**`) e blocos PIX.
+
+6.  **Banco de dados sincronizado**
+    *   `Banco_PI.sql` atualizado com `INSERT` completo dos 27 novos serviços.
+    *   Supabase em produção atualizado (serviços antigos desativados, novos serviços inseridos com `ativo = TRUE`).
+
+7.  **Deploy em produção**
+    *   Commit `9572bfe` enviado ao GitHub → auto-deploy no **Render** (backend) e **Vercel** (frontend).
+
+**Arquivos modificados:**
+*   `agente.py` — Novos serviços, categorias, apelidos, aviso LGPD, exibição agrupada
+*   `src/pages/Index.tsx` — Aviso LGPD na mensagem inicial, renderização de itálico
+*   `Banco_PI.sql` — Script SQL completo atualizado com 27 serviços
+*   `DOCUMENTACAO.md` — Documentação atualizada com todo o histórico
