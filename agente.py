@@ -497,6 +497,12 @@ class MotorDialogo:
             elif sessao.estado_fluxo == "cadastro_confirmacao":
                 resposta_texto = self._proc_cadastro_confirmacao(sessao, mensagem)
 
+            elif sessao.estado_fluxo == "agendamento_para_quem":
+                resposta_texto = self._proc_agendamento_para_quem(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_nome_terceiro":
+                resposta_texto = self._proc_agendamento_nome_terceiro(sessao, mensagem)
+
             elif sessao.estado_fluxo == "agendamento_data":
                 resposta_texto = self._proc_agendamento_data(sessao, mensagem)
 
@@ -637,7 +643,7 @@ class MotorDialogo:
             "Tenta de novo com outro **e-mail** ou **celular**, ou se preferir, fala **cadastrar** pra criar uma conta nova! 😊"
         )
 
-    # --- AGENDAMENTO: PASSO 1 — Data ---
+    # --- AGENDAMENTO: PASSO 0 — Para quem? ---
     def _iniciar_agendamento(self, sessao):
         if not sessao.cliente:
             return (
@@ -646,10 +652,45 @@ class MotorDialogo:
                 "✅ Me fala **login** se já tem conta\n"
                 "🆕 Ou **cadastrar** pra criar agora — leva menos de 1 minuto!"
             )
+        sessao.dados_agendamento = {}
+        sessao.estado_fluxo = "agendamento_para_quem"
+        return (
+            "Esse agendamento é pra você ou pra outra pessoa? 😊\n\n"
+            "1 - Pra mim\n"
+            "2 - Pra outra pessoa\n\n"
+            "Me manda o número da opção!"
+        )
+
+    def _proc_agendamento_para_quem(self, sessao, mensagem):
+        msg = mensagem.strip().lower()
+        if msg in ['1', 'pra mim', 'eu', 'para mim', 'mim']:
+            sessao.dados_agendamento['agendado_para_nome'] = None
+            return self._ir_para_escolha_data(sessao)
+        elif msg in ['2', 'outra pessoa', 'outra', 'para outra pessoa', 'outro', 'terceiro']:
+            sessao.estado_fluxo = "agendamento_nome_terceiro"
+            return "Beleza! Me fala o **nome completo** da pessoa que vai ser atendida 💖"
+        else:
+            return (
+                "Não entendi 😅 Me manda:\n\n"
+                "**1** — Se é pra você\n"
+                "**2** — Se é pra outra pessoa"
+            )
+
+    def _proc_agendamento_nome_terceiro(self, sessao, mensagem):
+        nome = mensagem.strip()
+        if len(nome) < 3:
+            return "Hmm, acho que faltou algo 😅 Me manda o nome completo da pessoa, por favor!"
+        sessao.dados_agendamento['agendado_para_nome'] = nome
+        return self._ir_para_escolha_data(sessao, nome_terceiro=nome)
+
+    def _ir_para_escolha_data(self, sessao, nome_terceiro=None):
         datas = gerar_datas_disponiveis()[:5]
-        sessao.dados_agendamento = {'lista_datas': datas}
+        sessao.dados_agendamento['lista_datas'] = datas
         sessao.estado_fluxo = "agendamento_data"
-        resp = "Ótimo, vamos marcar! Qual dessas datas fica melhor pra você? 📅\n\n"
+        if nome_terceiro:
+            resp = f"Anotei! Vamos marcar pra **{nome_terceiro}** 💖\n\nQual dessas datas fica melhor? 📅\n\n"
+        else:
+            resp = "Ótimo, vamos marcar! Qual dessas datas fica melhor pra você? 📅\n\n"
         for i, d in enumerate(datas, 1):
             resp += f"{i} - {d}\n"
         resp += "\nÉ só me mandar o número da opção!"
@@ -734,12 +775,15 @@ class MotorDialogo:
             preco = d['servico']['preco']
             sinal = preco * 0.4
             sessao.dados_agendamento['sinal'] = sinal
+            nome_terceiro = d.get('agendado_para_nome')
+            linha_terceiro = f"👤 Agendado para: **{nome_terceiro}**\n" if nome_terceiro else ""
             return (
                 f"Perfeito! Olha o resumo do seu agendamento 😊\n\n"
                 f"📅 Dia: **{d['data']}**\n"
                 f"🕐 Horário: **{d['horario']}**\n"
                 f"💅 Serviço: **{d['servico']['nome']}** (R$ {preco:.2f})\n"
-                f"👩 Profissional: **{d['manicure']['nome']}**\n\n"
+                f"👩 Profissional: **{d['manicure']['nome']}**\n"
+                f"{linha_terceiro}\n"
                 f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
                 f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
             )
@@ -792,9 +836,10 @@ class MotorDialogo:
         d = sessao.dados_agendamento
         preco = d['servico']['preco']
         sinal = d.get('sinal', preco * 0.4)
+        nome_terceiro = d.get('agendado_para_nome')
         try:
             if SUPABASE_DISPONIVEL:
-                supabase.table('agendamentos').insert({
+                dados_insert = {
                     'cliente_id':     sessao.cliente['id'],
                     'servico_id':     d['servico'].get('id'),
                     'manicure_id':    d['manicure'].get('id'),
@@ -806,11 +851,15 @@ class MotorDialogo:
                     'valor_sinal':    sinal,
                     'forma_pagamento': 'pix',
                     'criado_em':      datetime.datetime.now().isoformat(),
-                }).execute()
+                }
+                if nome_terceiro:
+                    dados_insert['agendado_para_nome'] = nome_terceiro
+                supabase.table('agendamentos').insert(dados_insert).execute()
+            linha_terceiro = f"\n👤 Agendado para: **{nome_terceiro}**" if nome_terceiro else ""
             return (
                 f"Pagamento recebido e agendamento confirmado! ✨\n\n"
                 f"📅 **{d['data']}** às **{d['horario']}**\n"
-                f"💅 **{d['servico']['nome']}** com a **{d['manicure']['nome']}**\n"
+                f"💅 **{d['servico']['nome']}** com a **{d['manicure']['nome']}**{linha_terceiro}\n"
                 f"💰 Sinal pago: R$ {sinal:.2f}\n\n"
                 f"Vamos te esperar, viu? Qualquer coisa é só chamar! 💖"
             )
@@ -988,6 +1037,7 @@ class MotorDialogo:
                         'status':        a.get('status', 'pendente'),
                         'sinal_pago':    a.get('sinal_pago', 0),
                         'sinal_confirmado': a.get('sinal_confirmado', False),
+                        'agendado_para_nome': a.get('agendado_para_nome'),
                     })
                 return agendamentos, data_str
             except Exception as e:
@@ -1047,8 +1097,10 @@ class MotorDialogo:
         for idx, a in enumerate(agendamentos, 1):
             status_emoji = "🟢" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "🟠"
             status_label = "Confirmado" if (a['sinal_pago'] and a['sinal_pago'] > 0) else "Aguardando Sinal"
+            linha_terceiro = f"   👤 Agendado para: {a['agendado_para_nome']}\n" if a.get('agendado_para_nome') else ""
             bloco_agenda += (
                 f"\n**{a['horario']}** — **{a['cliente_nome']}**\n"
+                f"{linha_terceiro}"
                 f"   💅 {a['servico_nome']} — R$ {a['servico_preco']:.2f}\n"
                 f"   👩 Profissional: {a['manicure_nome']}\n"
                 f"   {status_emoji} _{status_label}_\n"

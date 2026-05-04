@@ -13,6 +13,7 @@ type Agendamento = {
   id: number; horario: string; cliente_nome: string; cliente_cel: string;
   servico_nome: string; servico_preco: number; manicure_nome: string;
   status: string; sinal_pago: number; sinal_confirmado?: boolean;
+  agendado_para_nome?: string;
 };
 
 type DashboardData = {
@@ -258,6 +259,11 @@ const AdminPanel = () => {
                           <span className="text-lg font-bold text-white font-mono w-14 flex-shrink-0">{a.horario}</span>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-white truncate">{a.cliente_nome}</p>
+                            {a.agendado_para_nome && (
+                              <p className="text-xs text-purple-400 flex items-center gap-1 mt-0.5">
+                                <span>👤</span> Para: <span className="font-medium">{a.agendado_para_nome}</span>
+                              </p>
+                            )}
                             <p className="text-xs text-white/30">{a.cliente_cel || "Sem celular"}</p>
                           </div>
                         </div>
