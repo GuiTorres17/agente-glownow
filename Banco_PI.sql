@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS public.agendamentos (
     forma_pagamento VARCHAR DEFAULT 'pix',
     observacoes TEXT,
     lembrete_enviado BOOLEAN DEFAULT FALSE,
+    agendado_para_nome VARCHAR,
     criado_em TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 

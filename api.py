@@ -94,6 +94,39 @@ class AtualizarStatusPayload(BaseModel):
     status: str
 
 
+class CancelarAgendamentoPayload(BaseModel):
+    agendamento_id: int
+
+
+class ServicoPayload(BaseModel):
+    categoria: str
+    nome: str
+    preco: float
+    duracao: int = 60
+    descricao: str = ""
+    ativo: bool = True
+
+
+class ManicurePayload(BaseModel):
+    nome: str
+    especialidades: list = []
+    horarios_disponiveis: dict = {}
+    bio: str = ""
+    ativo: bool = True
+
+
+DIAS_TRABALHO = [1, 2, 3, 4, 5]  # Ter-Sáb (weekday: 0=Seg)
+
+def validar_dia_funcionamento(data_str: str) -> bool:
+    """Valida se a data NÃO cai em Domingo ou Segunda."""
+    try:
+        parts = data_str.split("/")
+        d = datetime.datetime(int(parts[2]), int(parts[1]), int(parts[0]))
+        return d.weekday() in DIAS_TRABALHO
+    except Exception:
+        return True
+
+
 # ---------------------------------------------------------------------------
 # ENDPOINTS PÚBLICOS
 # ---------------------------------------------------------------------------
@@ -286,6 +319,194 @@ def admin_logout(authorization: str | None = Header(default=None)):
     except Exception:
         pass
     return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# CRUD SERVIÇOS
+# ---------------------------------------------------------------------------
+@app.get("/admin/servicos")
+def admin_listar_servicos(authorization: str | None = Header(default=None)):
+    """Lista todos os serviços (ativos e inativos)."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        res = supabase.table('servicos').select('*').order('categoria').order('nome').execute()
+        return {"servicos": res.data or []}
+    return {"servicos": []}
+
+
+@app.post("/admin/servicos")
+def admin_criar_servico(payload: ServicoPayload, authorization: str | None = Header(default=None)):
+    """Cria um novo serviço."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            res = supabase.table('servicos').insert({
+                'categoria': payload.categoria,
+                'nome': payload.nome,
+                'preco': payload.preco,
+                'duracao': payload.duracao,
+                'descricao': payload.descricao,
+                'ativo': payload.ativo,
+            }).execute()
+            return {"success": True, "servico": res.data[0] if res.data else None}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+@app.put("/admin/servicos/{servico_id}")
+def admin_editar_servico(servico_id: int, payload: ServicoPayload, authorization: str | None = Header(default=None)):
+    """Edita um serviço existente."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            res = supabase.table('servicos').update({
+                'categoria': payload.categoria,
+                'nome': payload.nome,
+                'preco': payload.preco,
+                'duracao': payload.duracao,
+                'descricao': payload.descricao,
+                'ativo': payload.ativo,
+            }).eq('id', servico_id).execute()
+            return {"success": True, "servico": res.data[0] if res.data else None}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+@app.delete("/admin/servicos/{servico_id}")
+def admin_excluir_servico(servico_id: int, authorization: str | None = Header(default=None)):
+    """Soft-delete de um serviço (ativo = false)."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            supabase.table('servicos').update({'ativo': False}).eq('id', servico_id).execute()
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+# ---------------------------------------------------------------------------
+# CRUD MANICURES
+# ---------------------------------------------------------------------------
+@app.get("/admin/manicures")
+def admin_listar_manicures(authorization: str | None = Header(default=None)):
+    """Lista todas as manicures (ativas e inativas)."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        res = supabase.table('manicures').select('*').order('nome').execute()
+        return {"manicures": res.data or []}
+    return {"manicures": []}
+
+
+@app.post("/admin/manicures")
+def admin_criar_manicure(payload: ManicurePayload, authorization: str | None = Header(default=None)):
+    """Cadastra nova manicure."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            import json
+            res = supabase.table('manicures').insert({
+                'nome': payload.nome,
+                'especialidades': payload.especialidades,
+                'horarios_disponiveis': payload.horarios_disponiveis,
+                'bio': payload.bio,
+                'ativo': payload.ativo,
+                'role': 'manicure',
+            }).execute()
+            return {"success": True, "manicure": res.data[0] if res.data else None}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+@app.put("/admin/manicures/{manicure_id}")
+def admin_editar_manicure(manicure_id: int, payload: ManicurePayload, authorization: str | None = Header(default=None)):
+    """Edita dados de uma manicure."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            res = supabase.table('manicures').update({
+                'nome': payload.nome,
+                'especialidades': payload.especialidades,
+                'horarios_disponiveis': payload.horarios_disponiveis,
+                'bio': payload.bio,
+                'ativo': payload.ativo,
+            }).eq('id', manicure_id).execute()
+            return {"success": True, "manicure": res.data[0] if res.data else None}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+@app.delete("/admin/manicures/{manicure_id}")
+def admin_excluir_manicure(manicure_id: int, authorization: str | None = Header(default=None)):
+    """Soft-delete de manicure (ativo = false)."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            supabase.table('manicures').update({'ativo': False}).eq('id', manicure_id).execute()
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+# ---------------------------------------------------------------------------
+# CANCELAMENTO MANUAL
+# ---------------------------------------------------------------------------
+@app.post("/admin/cancelar-agendamento")
+def admin_cancelar_agendamento(payload: CancelarAgendamentoPayload, authorization: str | None = Header(default=None)):
+    """Cancela um agendamento manualmente (status='cancelado')."""
+    extrair_token(authorization)
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            supabase.table('agendamentos').update({
+                'status': 'cancelado',
+            }).eq('id', payload.agendamento_id).execute()
+            logger.info(f"Agendamento #{payload.agendamento_id} cancelado manualmente pelo admin")
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"success": True, "demo": True}
+
+
+# ---------------------------------------------------------------------------
+# RESUMO SEMANAL (para gráficos do dashboard)
+# ---------------------------------------------------------------------------
+@app.get("/admin/weekly-summary")
+def admin_weekly_summary(authorization: str | None = Header(default=None)):
+    """Retorna faturamento e contagem dos últimos 7 dias para gráficos."""
+    extrair_token(authorization)
+    hoje = datetime.datetime.now()
+    dias = []
+    nomes_dia = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+    for i in range(6, -1, -1):
+        d = hoje - datetime.timedelta(days=i)
+        data_str = d.strftime("%d/%m/%Y")
+        agendamentos, _ = motor._obter_agendamentos_do_dia(data_str)
+        total = len(agendamentos)
+        faturamento = sum(a['servico_preco'] for a in agendamentos)
+        confirmados = len([a for a in agendamentos if a.get('sinal_pago') and a['sinal_pago'] > 0])
+        dias.append({
+            "dia": nomes_dia[d.weekday()],
+            "data": data_str,
+            "total": total,
+            "confirmados": confirmados,
+            "pendentes": total - confirmados,
+            "faturamento": faturamento,
+        })
+    return {"dias": dias}
 
 
 if __name__ == "__main__":

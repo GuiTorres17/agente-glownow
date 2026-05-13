@@ -72,7 +72,8 @@ REGRAS OBRIGATÓRIAS:
 Serviços que oferecemos (use como referência geral, não cite preços específicos):
 - Manicure, Pedicure, Esmaltação em gel, Alongamento de unhas, Fibra de vidro, Spa dos pés, Design e decoração de unhas.
 
-Horário de funcionamento: Segunda a Sábado, das 09h às 18h.
+Horário de funcionamento: Terça a Sábado, das 09h às 18h.
+IMPORTANTE: NÃO funcionamos aos Domingos e Segundas-feiras.
 """
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ CONFIG_NEGOCIO = {
     'horario_fechamento': '18:00',
     'intervalo_entre_clientes': 15,
     'horarios_lembrete': ['18:00', '09:00'],
-    'dias_trabalho': [0, 1, 2, 3, 4, 5],  # seg a sab
+    'dias_trabalho': [1, 2, 3, 4, 5],  # ter a sab (weekday: 0=seg, 1=ter ... 6=dom)
 }
 
 # ---------------------------------------------------------------------------
@@ -700,7 +701,20 @@ class MotorDialogo:
     def _proc_agendamento_data(self, sessao, mensagem):
         datas = sessao.dados_agendamento.get('lista_datas', [])
         if mensagem.isdigit() and 1 <= int(mensagem) <= len(datas):
-            sessao.dados_agendamento['data'] = datas[int(mensagem) - 1]
+            data_escolhida = datas[int(mensagem) - 1]
+            # Validação: rejeitar Domingos e Segundas
+            try:
+                dia, mes, ano = data_escolhida.split('/')
+                dt = datetime.datetime(int(ano), int(mes), int(dia))
+                if dt.weekday() not in CONFIG_NEGOCIO['dias_trabalho']:
+                    nome_dia = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][dt.weekday()]
+                    return (
+                        f"Ops, essa data cai em **{nome_dia}** e a gente não funciona nesse dia 😅\n\n"
+                        f"A Lino Esmalteria abre de **Terça a Sábado**! Escolhe outra data da lista, por favor 💖"
+                    )
+            except Exception:
+                pass
+            sessao.dados_agendamento['data'] = data_escolhida
             sessao.estado_fluxo = "agendamento_servico"
             servs = obter_servicos()
             sessao.dados_agendamento['lista_servicos'] = servs

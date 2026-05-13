@@ -3,9 +3,13 @@ import { useNavigate } from "react-router-dom";
 import {
   LogOut, RefreshCw, DollarSign, Users, CheckCircle2,
   Clock, AlertCircle, CalendarDays, Sparkles, TrendingUp,
-  CreditCard, ChevronRight, ChevronLeft, LayoutGrid, List
+  CreditCard, ChevronRight, ChevronLeft, LayoutGrid, List,
+  XCircle, BarChart3, Scissors, UsersRound
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DashboardCharts } from "@/components/DashboardCharts";
+import { ServicosManager } from "@/components/ServicosManager";
+import { EquipeManager } from "@/components/EquipeManager";
 
 const AGENT_BASE = (import.meta.env.VITE_AGENT_URL || "http://localhost:8000/chat").replace("/chat", "");
 
@@ -34,12 +38,14 @@ const AdminPanel = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem("admin_token");
   const [view, setView] = useState<"day"|"month">("day");
+  const [tab, setTab] = useState<"dashboard"|"agenda"|"servicos"|"equipe">("dashboard");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [monthly, setMonthly] = useState<MonthlyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirmandoId, setConfirmandoId] = useState<number | null>(null);
+  const [cancelandoId, setCancelandoId] = useState<number | null>(null);
   const [successMsg, setSuccessMsg] = useState("");
 
   const authHeaders = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -91,6 +97,21 @@ const AdminPanel = () => {
   const handleLogout = async () => {
     try { await fetch(`${AGENT_BASE}/admin/logout`, { method: "POST", headers: authHeaders() }); } catch (err) { console.error(err); }
     localStorage.removeItem("admin_token"); navigate("/");
+  };
+
+  const handleCancelar = async (id: number) => {
+    if (!confirm("Tem certeza que deseja cancelar este agendamento?")) return;
+    setCancelandoId(id); setError(""); setSuccessMsg("");
+    try {
+      const res = await fetch(`${AGENT_BASE}/admin/cancelar-agendamento`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ agendamento_id: id }),
+      });
+      if (!res.ok) throw new Error("Erro ao cancelar");
+      setSuccessMsg("✅ Agendamento cancelado!");
+      setTimeout(() => setSuccessMsg(""), 4000);
+      await fetchDay();
+    } catch (err) { setError((err as Error).message); } finally { setCancelandoId(null); }
   };
 
   const handleConfirmarSinal = async (id: number) => {
@@ -183,12 +204,18 @@ const AdminPanel = () => {
             <p className="text-white/40 text-sm">Painel Administrativo — Lino Esmalteria</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { setView("day"); fetchDay(); }} className={cn("h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all duration-200 border", view==="day" ? "bg-green-500/15 border-green-500/30 text-green-400" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white")}><List className="h-3.5 w-3.5" />Diário</button>
-            <button onClick={() => { setView("month"); fetchMonth(); }} className={cn("h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all duration-200 border", view==="month" ? "bg-green-500/15 border-green-500/30 text-green-400" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white")}><LayoutGrid className="h-3.5 w-3.5" />Mensal</button>
-            <div className="w-px h-6 bg-white/10 mx-1" />
             <button onClick={handleLogout} className="h-9 px-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-xs font-medium flex items-center gap-1.5 transition-all duration-200"><LogOut className="h-3.5 w-3.5" />Sair</button>
           </div>
         </header>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1">
+          {(["dashboard","agenda","servicos","equipe"] as const).map(t => {
+            const icons = { dashboard: <BarChart3 className="h-3.5 w-3.5" />, agenda: <CalendarDays className="h-3.5 w-3.5" />, servicos: <Scissors className="h-3.5 w-3.5" />, equipe: <UsersRound className="h-3.5 w-3.5" /> };
+            const labels = { dashboard: "Dashboard", agenda: "Agenda", servicos: "Serviços", equipe: "Equipe" };
+            return <button key={t} onClick={() => setTab(t)} className={cn("h-9 px-4 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all border whitespace-nowrap", tab===t ? "bg-green-500/15 border-green-500/30 text-green-400" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white")}>{icons[t]}{labels[t]}</button>;
+          })}
+        </div>
 
         {error && (
           <div className="mb-5 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 animate-fade-in-up">
@@ -202,7 +229,17 @@ const AdminPanel = () => {
           </div>
         )}
 
-        {/* Date navigator */}
+        {/* TAB: Dashboard */}
+        {tab === "dashboard" && token && <DashboardCharts token={token} />}
+
+        {/* TAB: Serviços */}
+        {tab === "servicos" && token && <ServicosManager token={token} />}
+
+        {/* TAB: Equipe */}
+        {tab === "equipe" && token && <EquipeManager token={token} />}
+
+        {/* TAB: Agenda — Date navigator */}
+        {tab === "agenda" && (
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <button onClick={() => navigateDate(-1)} className="h-9 w-9 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.1] flex items-center justify-center transition-all"><ChevronLeft className="h-4 w-4" /></button>
@@ -219,15 +256,18 @@ const AdminPanel = () => {
             <button onClick={() => navigateDate(1)} className="h-9 w-9 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/60 hover:text-white hover:bg-white/[0.1] flex items-center justify-center transition-all"><ChevronRight className="h-4 w-4" /></button>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => { setView("day"); fetchDay(); }} className={cn("h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all border", view==="day" ? "bg-green-500/15 border-green-500/30 text-green-400" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white")}><List className="h-3.5 w-3.5" />Diário</button>
+            <button onClick={() => { setView("month"); fetchMonth(); }} className={cn("h-9 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all border", view==="month" ? "bg-green-500/15 border-green-500/30 text-green-400" : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white")}><LayoutGrid className="h-3.5 w-3.5" />Mensal</button>
             {!isToday && <button onClick={goToday} className="h-9 px-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-all">Hoje</button>}
             <button onClick={() => view==="day" ? fetchDay() : fetchMonth()} disabled={loading} className="h-9 px-3 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/60 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-50">
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />Atualizar
             </button>
           </div>
         </div>
+        )}
 
         {/* ===== DAY VIEW ===== */}
-        {view === "day" && dashboard && (
+        {view === "day" && dashboard && tab === "agenda" && (
           <>
             {/* KPIs */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -279,13 +319,18 @@ const AdminPanel = () => {
                           ) : (
                             <>
                               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-lg"><Clock className="h-3.5 w-3.5" />Aguardando</span>
-                              <button onClick={() => handleConfirmarSinal(a.id)} disabled={confirmandoId === a.id}
+                              <button onClick={() => handleConfirmarSinal(a.id)} disabled={confirmandoId === a.id || cancelandoId === a.id}
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-lg hover:bg-green-500/20 transition-all disabled:opacity-50">
                                 {confirmandoId === a.id ? <div className="h-3.5 w-3.5 border-2 border-green-400/30 border-t-green-400 rounded-full animate-spin" /> : <CreditCard className="h-3.5 w-3.5" />}
                                 Confirmar
                               </button>
                             </>
                           )}
+                          <button onClick={() => handleCancelar(a.id)} disabled={cancelandoId === a.id}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-all disabled:opacity-50">
+                            {cancelandoId === a.id ? <div className="h-3.5 w-3.5 border-2 border-red-400/30 border-t-red-400 rounded-full animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                            Cancelar
+                          </button>
                         </div>
                       </div>
                     );
@@ -297,9 +342,8 @@ const AdminPanel = () => {
         )}
 
         {/* ===== MONTH VIEW ===== */}
-        {view === "month" && monthly && (
+        {tab === "agenda" && view === "month" && monthly && (
           <>
-            {/* Monthly KPIs summary */}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
               <KpiCard icon={<CalendarDays className="h-5 w-5 text-green-400" />} value={String(monthly.dias.reduce((s,d) => s + d.total, 0))} label="Total de Agendamentos" color="green" />
               <KpiCard icon={<DollarSign className="h-5 w-5 text-emerald-400" />} value={`R$ ${monthly.dias.reduce((s,d) => s + d.faturamento, 0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`} label="Faturamento do Mês" color="emerald" />
@@ -308,6 +352,7 @@ const AdminPanel = () => {
             {renderCalendar()}
           </>
         )}
+
 
         <footer className="mt-8 text-center"><p className="text-xs text-white/15">Lino Esmalteria — Painel Administrativo v2.0</p></footer>
       </div>
