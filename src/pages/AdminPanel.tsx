@@ -361,10 +361,20 @@ const AdminPanel = () => {
 };
 
 // Reusable KPI card component
+const colorMap: Record<string, string> = {
+  green: "bg-green-500/10",
+  emerald: "bg-emerald-500/10",
+  amber: "bg-amber-500/10",
+  blue: "bg-blue-500/10",
+  purple: "bg-purple-500/10",
+  red: "bg-red-500/10",
+  white: "bg-white/10",
+};
+
 const KpiCard = ({ icon, extra, value, label, color }: { icon: React.ReactNode; extra?: React.ReactNode; value: string; label: string; color: string }) => (
-  <div className="group backdrop-blur-xl bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5 hover:bg-white/[0.06] transition-all duration-300">
+  <div className="group backdrop-blur-xl bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300 hover:scale-[1.02]">
     <div className="flex items-center justify-between mb-3">
-      <div className={`h-10 w-10 rounded-xl bg-${color}-500/10 flex items-center justify-center`}>{icon}</div>
+      <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", colorMap[color] || "bg-white/10")}>{icon}</div>
       {extra}
     </div>
     <p className="text-2xl font-bold text-white">{value}</p>
@@ -373,3 +383,4 @@ const KpiCard = ({ icon, extra, value, label, color }: { icon: React.ReactNode; 
 );
 
 export default AdminPanel;
+

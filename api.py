@@ -482,6 +482,71 @@ def admin_cancelar_agendamento(payload: CancelarAgendamentoPayload, authorizatio
 
 
 # ---------------------------------------------------------------------------
+# ESTATÍSTICAS GERAIS (KPIs do dashboard)
+# ---------------------------------------------------------------------------
+@app.get("/admin/stats")
+def admin_stats(authorization: str | None = Header(default=None)):
+    """Retorna estatísticas gerais para o dashboard: total de clientes,
+    serviços ativos, profissionais ativas e faturamento do mês atual."""
+    extrair_token(authorization)
+
+    stats = {
+        "total_clientes": 0,
+        "servicos_ativos": 0,
+        "profissionais_ativas": 0,
+        "faturamento_mes": 0.0,
+        "agendamentos_mes": 0,
+    }
+
+    if SUPABASE_DISPONIVEL:
+        from agente import supabase
+        try:
+            # Total de clientes
+            res = supabase.table('clientes').select('id', count='exact').execute()
+            stats["total_clientes"] = res.count if res.count is not None else len(res.data or [])
+        except Exception as e:
+            logger.error(f"Erro ao contar clientes: {e}")
+
+        try:
+            # Serviços ativos
+            res = supabase.table('servicos').select('id', count='exact').eq('ativo', True).execute()
+            stats["servicos_ativos"] = res.count if res.count is not None else len(res.data or [])
+        except Exception as e:
+            logger.error(f"Erro ao contar serviços: {e}")
+
+        try:
+            # Profissionais ativas
+            res = supabase.table('manicures').select('id', count='exact').eq('ativo', True).execute()
+            stats["profissionais_ativas"] = res.count if res.count is not None else len(res.data or [])
+        except Exception as e:
+            logger.error(f"Erro ao contar manicures: {e}")
+
+        try:
+            # Faturamento e agendamentos do mês atual
+            hoje = datetime.datetime.now()
+            primeiro_dia = f"01/{hoje.month:02d}/{hoje.year}"
+            ultimo_dia = f"{hoje.day:02d}/{hoje.month:02d}/{hoje.year}"
+
+            import calendar
+            _, dias_no_mes = calendar.monthrange(hoje.year, hoje.month)
+
+            total_fat = 0.0
+            total_agend = 0
+            for dia in range(1, dias_no_mes + 1):
+                data_str = f"{dia:02d}/{hoje.month:02d}/{hoje.year}"
+                agendamentos, _ = motor._obter_agendamentos_do_dia(data_str)
+                total_agend += len(agendamentos)
+                total_fat += sum(a['servico_preco'] for a in agendamentos)
+
+            stats["faturamento_mes"] = total_fat
+            stats["agendamentos_mes"] = total_agend
+        except Exception as e:
+            logger.error(f"Erro ao calcular faturamento mensal: {e}")
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # RESUMO SEMANAL (para gráficos do dashboard)
 # ---------------------------------------------------------------------------
 @app.get("/admin/weekly-summary")
