@@ -41,12 +41,25 @@ except Exception as e:
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_DISPONIVEL = False
 
+# Modelo configurável por env. Os modelos Gemini 1.5 foram aposentados pelo
+# Google, então o padrão é a família 2.x atual. A lista funciona como cadeia
+# de fallback: se um modelo estiver indisponível (404) ou sem quota (429),
+# tentamos o próximo antes de cair nas respostas predefinidas.
+GEMINI_MODELO = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+GEMINI_MODELOS = list(dict.fromkeys([
+    GEMINI_MODELO,
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-flash-latest',
+]))
+
 if GEMINI_API_KEY:
     try:
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         GEMINI_DISPONIVEL = True
-        logger.info("Gemini configurado com sucesso")
+        logger.info(f"Gemini configurado com sucesso (modelos: {', '.join(GEMINI_MODELOS)})")
     except Exception as e:
+        gemini_client = None
         logger.warning(f"Erro ao configurar Gemini: {e}")
 else:
     gemini_client = None
@@ -177,16 +190,25 @@ class AssistenteIA:
                     contents.append(types.Content(role="model", parts=[types.Part(text=troca["resposta"])]))
                 contents.append(types.Content(role="user", parts=[types.Part(text=mensagem)]))
 
-                response = gemini_client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                    ),
-                )
-                resp = response.text.strip()
-                self.adicionar_ao_historico(cliente_id, mensagem, resp)
-                return resp
+                ultimo_erro = None
+                for modelo in GEMINI_MODELOS:
+                    try:
+                        response = gemini_client.models.generate_content(
+                            model=modelo,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                            ),
+                        )
+                        resp = (response.text or "").strip()
+                        if resp:
+                            self.adicionar_ao_historico(cliente_id, mensagem, resp)
+                            return resp
+                    except Exception as e:
+                        ultimo_erro = e
+                        logger.warning(f"Modelo Gemini '{modelo}' indisponível: {str(e)[:120]}")
+                        continue
+                logger.error(f"Todos os modelos Gemini falharam. Último erro: {ultimo_erro}")
             except Exception as e:
                 logger.error(f"Erro no Gemini: {e}")
 
