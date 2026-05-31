@@ -463,6 +463,76 @@ def encontrar_data_por_texto(texto, datas):
     return None
 
 
+def encontrar_horario_por_texto(texto, horarios):
+    """Reconhece o horário escolhido a partir de uma frase livre.
+    `horarios`: lista de strings 'HH:MM' na ordem em que foram exibidas.
+    Retorna a string do horário escolhido ou None.
+
+    Aceita: número/índice (1..N), horário escrito (09:00, 9h, 9h30,
+    9 horas, às 9, ao meio-dia) e ordinal por palavra (a primeira, última).
+    """
+    if not horarios:
+        return None
+    t = texto.lower().strip()
+
+    # Pré-processa cada horário da lista em (hora, minuto)
+    def hm(h):
+        try:
+            hh, mm = h.split(':')
+            return int(hh), int(mm)
+        except Exception:
+            return None
+    pares = [hm(h) for h in horarios]
+
+    # 1. Índice direto por número puro (mantém "1".."6")
+    if t.isdigit():
+        idx = int(t)
+        if 1 <= idx <= len(horarios):
+            return horarios[idx - 1]
+
+    # 2. Meio-dia
+    if 'meio dia' in t or 'meio-dia' in t or 'meiodia' in t:
+        for h, p in zip(horarios, pares):
+            if p and p[0] == 12:
+                return h
+
+    # 3. Horário explícito com minutos: HH:MM, HHhMM, HH:MM
+    m = re.search(r'\b(\d{1,2})[:h](\d{2})\b', t)
+    if m:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        for h, p in zip(horarios, pares):
+            if p and p == (hh, mm):
+                return h
+
+    # 4. Só a hora: "9h", "9 horas", "às 9", "as 9h", ou número solto
+    #    que case com a hora cheia de algum horário da lista.
+    hora_alvo = None
+    m = re.search(r'\b(\d{1,2})\s*h(?:oras?|rs?)?\b', t)   # 9h, 9 horas, 9hrs
+    if m:
+        hora_alvo = int(m.group(1))
+    if hora_alvo is None:
+        m = re.search(r'\b(?:a|à)s?\s+(\d{1,2})\b', t)      # às 9 / as 9
+        if m:
+            hora_alvo = int(m.group(1))
+    if hora_alvo is None:
+        m = re.search(r'\b(\d{1,2})\b', t)                  # número solto
+        if m:
+            n = int(m.group(1))
+            if n > len(horarios):  # índices pequenos já tratados no passo 1
+                hora_alvo = n
+    if hora_alvo is not None:
+        for h, p in zip(horarios, pares):
+            if p and p[0] == hora_alvo:
+                return h
+
+    # 5. Ordinal por palavra ("a primeira", "última")
+    idx = interpretar_indice(t, len(horarios))
+    if idx:
+        return horarios[idx - 1]
+
+    return None
+
+
 def cliente_publico(cliente):
     """Retorna só os campos seguros do cliente para guardar no navegador."""
     if not cliente:
@@ -962,7 +1032,12 @@ class MotorDialogo:
         if msg.isdigit() and 1 <= int(msg) <= len(manicures):
             manicure_escolhida = manicures[int(msg) - 1]
         else:
+            # Nome / apelido / fuzzy e, por fim, ordinal por frase ("a primeira")
             manicure_escolhida = encontrar_manicure_por_texto(msg, manicures)
+            if not manicure_escolhida:
+                idx = interpretar_indice(msg, len(manicures))
+                if idx:
+                    manicure_escolhida = manicures[idx - 1]
 
         if manicure_escolhida:
             sessao.dados_agendamento['manicure'] = manicure_escolhida
@@ -979,11 +1054,12 @@ class MotorDialogo:
             return resp
         return "Não encontrei essa profissional 😅 Me manda o número ou o nome dela, por favor!"
 
-    # --- AGENDAMENTO: PASSO 4 — Horário ---
+    # --- AGENDAMENTO: PASSO 4 — Horário (aceita número, horário escrito ou frase) ---
     def _proc_agendamento_horario(self, sessao, mensagem):
         horarios = sessao.dados_agendamento.get('lista_horarios', [])
-        if mensagem.strip().isdigit() and 1 <= int(mensagem.strip()) <= len(horarios):
-            sessao.dados_agendamento['horario'] = horarios[int(mensagem.strip()) - 1]
+        horario_escolhido = encontrar_horario_por_texto(mensagem, horarios)
+        if horario_escolhido:
+            sessao.dados_agendamento['horario'] = horario_escolhido
             sessao.estado_fluxo = "agendamento_confirmacao"
             d = sessao.dados_agendamento
             preco = d['servico']['preco']
@@ -1001,7 +1077,10 @@ class MotorDialogo:
                 f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
                 f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
             )
-        return "Ops, esse número não tá na lista 😅 Me manda o número do horário que você prefere!"
+        return (
+            "Não entendi qual horário você quer 😅\n\n"
+            "Pode me mandar o **número** da opção ou o **horário** (ex: 09:00, 9h, às 14) 💕"
+        )
 
     # --- AGENDAMENTO: PASSO 5 — Confirmação → Gera PIX ---
     def _proc_agendamento_confirmacao(self, sessao, mensagem):
