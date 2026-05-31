@@ -33,6 +33,33 @@ const Tick = ({ status }: { status?: Msg["status"] }) => {
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL || "http://localhost:8000/chat";
 
+/* ---------- Login persistente via localStorage ---------- */
+const USER_ID_KEY = "glownow_user_id";
+const CLIENTE_KEY = "glownow_cliente";
+
+type ClienteSalvo = { id?: number | string; nome?: string; email?: string; celular?: string };
+
+// ID único por navegador — sem isso todos os visitantes compartilham a mesma sessão no backend
+const getUserId = (): string => {
+  let id = localStorage.getItem(USER_ID_KEY);
+  if (!id) {
+    id = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `u_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(USER_ID_KEY, id);
+  }
+  return id;
+};
+
+const getClienteSalvo = (): ClienteSalvo | null => {
+  try {
+    const raw = localStorage.getItem(CLIENTE_KEY);
+    return raw ? (JSON.parse(raw) as ClienteSalvo) : null;
+  } catch {
+    return null;
+  }
+};
+
 /* ---------- PIX QR Code Block ---------- */
 const PixBlock = ({ code }: { code: string }) => {
   const [copied, setCopied] = useState(false);
@@ -131,12 +158,19 @@ const Index = () => {
           "Content-Type": "application/json",
           "ngrok-skip-browser-warning": "true",
         },
-        body: JSON.stringify({ message: text, user_id: "web-user" }),
+        body: JSON.stringify({ message: text, user_id: getUserId(), cliente: getClienteSalvo() }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const reply: string =
         data.reply ?? data.response ?? data.message ?? "(sem resposta)";
+
+      // Login persistente: guarda/limpa o cliente no localStorage
+      if (data.cliente) {
+        localStorage.setItem(CLIENTE_KEY, JSON.stringify(data.cliente));
+      } else if (data.limpar_cliente) {
+        localStorage.removeItem(CLIENTE_KEY);
+      }
       setMessages((m) => [
         ...m.map((msg) => (msg.id === userMsg.id ? { ...msg, status: "read" as const } : msg)),
         { id: Date.now() + 1, from: "them", text: reply, time: nowTime() },
