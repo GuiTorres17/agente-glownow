@@ -533,6 +533,98 @@ def encontrar_horario_por_texto(texto, horarios):
     return None
 
 
+# Afirmações e negações reconhecidas dentro de frases ("sim, pode ser",
+# "isso, tá certo", "não, deixa pra lá"). Usadas nas confirmações para evitar
+# que um texto maior que "sim" seja tratado como cancelamento.
+_AFIRMACOES = [
+    'sim', 's', 'yes', 'confirmar', 'confirma', 'confirmo', 'confirmado',
+    'isso', 'isso mesmo', 'exato', 'exatamente', 'correto', 'certo',
+    'ta certo', 'tá certo', 'ta bom', 'tá bom', 'tabom', 'ta certinho',
+    'tudo certo', 'pode ser', 'pode sim', 'pode confirmar', 'pode marcar',
+    'claro', 'com certeza', 'aham', 'uhum', 'positivo', 'ok', 'okay', 'okk',
+    'beleza', 'blz', 'show', 'perfeito', 'fechado', 'bora', 'vamos',
+    'quero', 'quero sim', 'concordo', 'aceito', 'pode',
+]
+_NEGACOES = [
+    'nao', 'não', 'n', 'no', 'nops', 'nem', 'jamais', 'negativo',
+    'nao quero', 'não quero', 'cancela', 'cancelar', 'desistir', 'desisto',
+    'deixa', 'deixa pra la', 'deixa pra lá', 'esquece', 'errado', 'ta errado',
+    'tá errado', 'mudar', 'quero mudar', 'muda', 'nao confirmo', 'não confirmo',
+    'melhor nao', 'melhor não', 'agora nao', 'agora não', 'outra hora',
+]
+
+
+def _normalizar(texto):
+    """Minúsculas, sem acentos e sem pontuação nas bordas, para casar frases."""
+    t = texto.lower().strip()
+    t = re.sub(r'[!?.,;:]+$', '', t).strip()
+    return t
+
+
+# Hesitações: não são nem sim nem não — devem fazer o bot re-perguntar,
+# nunca cancelar. Ex.: "não sei", "talvez", "deixa eu ver".
+_HESITACOES = [
+    'nao sei', 'não sei', 'sei la', 'sei lá', 'nao tenho certeza',
+    'não tenho certeza', 'talvez', 'acho que', 'deixa eu ver',
+    'deixa eu pensar', 'pera', 'perai', 'peraí', 'espera', 'um momento',
+    'como assim', 'nao entendi', 'não entendi', 'nao sei nao', 'hmm', 'hum',
+]
+
+
+def _eh_hesitacao(t):
+    """t já normalizado. True se for resposta hesitante/indecisa."""
+    return any(h in t for h in _HESITACOES)
+
+
+def eh_negacao(texto):
+    """True se a mensagem expressa recusa/negação (frase ou palavra)."""
+    t = _normalizar(texto)
+    if not t:
+        return False
+    # Hesitação não é negação — deixa o fluxo re-perguntar em vez de cancelar.
+    if _eh_hesitacao(t):
+        return False
+    if t in _NEGACOES:
+        return True
+    for termo in ['cancela', 'desist', 'errado', 'quero mudar', 'quero trocar',
+                  'deixa pra', 'esquece', 'melhor nao', 'melhor não']:
+        if termo in t:
+            return True
+    # Negação no início seguida de recusa clara: "não, prefiro outro",
+    # "nao quero", "nao pode". Hesitações já foram filtradas acima.
+    if re.match(r'^(n[ãa]o|nops|nem)\b', t):
+        return True
+    return False
+
+
+def eh_afirmacao(texto):
+    """True se a mensagem expressa concordância/confirmação (frase ou palavra)."""
+    t = _normalizar(texto)
+    if not t:
+        return False
+    # Hesitação não é afirmação ("acho que sim" = inseguro → re-pergunta).
+    if _eh_hesitacao(t):
+        return False
+    # Negação tem prioridade: "não, pode cancelar" não é afirmação.
+    if eh_negacao(texto):
+        return False
+    if t in _AFIRMACOES:
+        return True
+    # Afirmação contida na frase: "sim, pode confirmar", "isso mesmo, ta certo"
+    palavras = set(re.findall(r"[a-zà-ú]+", t))
+    gatilhos = {'sim', 'isso', 'exato', 'correto', 'certo', 'claro', 'ok',
+                'okay', 'beleza', 'blz', 'perfeito', 'confirmar', 'confirma',
+                'confirmo', 'pode', 'quero', 'aceito', 'concordo', 'positivo',
+                'aham', 'uhum', 'bora', 'fechado', 'show'}
+    if palavras & gatilhos:
+        return True
+    for termo in ['pode ser', 'pode sim', 'ta certo', 'tá certo', 'ta bom',
+                  'tá bom', 'tudo certo', 'com certeza', 'isso mesmo']:
+        if termo in t:
+            return True
+    return False
+
+
 def cliente_publico(cliente):
     """Retorna só os campos seguros do cliente para guardar no navegador."""
     if not cliente:
@@ -1084,7 +1176,7 @@ class MotorDialogo:
 
     # --- AGENDAMENTO: PASSO 5 — Confirmação → Gera PIX ---
     def _proc_agendamento_confirmacao(self, sessao, mensagem):
-        if mensagem.strip().lower() in ['sim', 's', 'yes', 'confirmar']:
+        if eh_afirmacao(mensagem):
             d = sessao.dados_agendamento
             sinal = d.get('sinal', d['servico']['preco'] * 0.4)
             pix_code = gerar_pix_copia_cola(sinal, d['servico']['nome'])
@@ -1097,20 +1189,31 @@ class MotorDialogo:
                 f"Depois que fizer o pagamento, me fala **pago** que eu confirmo tudo pra você! 😊\n\n"
                 f"Se quiser cancelar, é só falar **cancelar**."
             )
-        else:
+        elif eh_negacao(mensagem):
             sessao.dados_agendamento = {}
             sessao.estado_fluxo = None
             return "Sem problema, cancelei! Quando quiser tentar de novo, é só me falar **agendar** 💖"
+        else:
+            # Resposta ambígua — NÃO cancela; pergunta de novo com gentileza.
+            return (
+                "Desculpa, não tenho certeza se entendi 😊\n\n"
+                "Posso confirmar esse agendamento? Me responde com **sim** pra seguir "
+                "com o pagamento, ou **não** se quiser mudar alguma coisa 💕"
+            )
 
     # --- AGENDAMENTO: PASSO 6 — Aguarda pagamento → Salva ---
     def _proc_agendamento_pagamento(self, sessao, mensagem):
-        msg = mensagem.strip().lower()
-        if msg in ['pago', 'paguei', 'fiz o pix', 'pix feito', 'transferi', 'pronto', 'feito', 'já paguei', 'ja paguei']:
+        msg = _normalizar(mensagem)
+        termos_pago = ['pago', 'paguei', 'fiz o pix', 'pix feito', 'fiz o pagamento',
+                       'fiz a transferencia', 'transferi', 'pronto', 'feito',
+                       'ja paguei', 'já paguei', 'esta pago', 'está pago', 'finalizei',
+                       'mandei o pix', 'enviei o pix', 'realizei o pagamento']
+        if any(t in msg for t in termos_pago):
             resultado = self._salvar_agendamento(sessao)
             sessao.dados_agendamento = {}
             sessao.estado_fluxo = None
             return resultado
-        elif msg in ['cancelar', 'cancel', 'voltar', 'desistir']:
+        elif eh_negacao(mensagem) or msg in ['cancelar', 'cancel', 'voltar', 'desistir']:
             sessao.dados_agendamento = {}
             sessao.estado_fluxo = None
             return "Tudo bem, cancelei o agendamento! Quando quiser tentar de novo, é só me chamar 💖"
@@ -1235,15 +1338,22 @@ class MotorDialogo:
         )
 
     def _proc_cadastro_confirmacao(self, sessao, mensagem):
-        if mensagem.strip().lower() in ['sim', 's', 'yes']:
+        if eh_afirmacao(mensagem):
             resultado = self._salvar_cadastro(sessao)
             sessao.dados_cadastro = {}
             sessao.estado_fluxo = None
             return resultado
-        else:
+        elif eh_negacao(mensagem):
             sessao.dados_cadastro = {}
             sessao.estado_fluxo = None
             return "Sem problema, cancelei! Se mudar de ideia, é só me falar **cadastrar** de novo 😊"
+        else:
+            # Resposta ambígua — NÃO descarta o cadastro; confirma de novo.
+            return (
+                "Hmm, não tenho certeza se entendi 😊\n\n"
+                "Os dados estão certinhos? Me fala **sim** pra eu finalizar seu cadastro "
+                "ou **não** se quiser corrigir algo 💕"
+            )
 
     def _salvar_cadastro(self, sessao):
         """Salva o novo cliente no Supabase e faz login automático."""
