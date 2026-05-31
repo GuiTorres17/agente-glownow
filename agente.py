@@ -625,6 +625,27 @@ def eh_afirmacao(texto):
     return False
 
 
+def eh_cancelamento(texto):
+    """True para pedidos explícitos de cancelar/sair do fluxo atual.
+    Proposital: NÃO inclui "não" sozinho (negação é tratada dentro de cada
+    confirmação), só intenções claras de abortar — assim "não, quero o gel"
+    no meio de um fluxo não cancela tudo por engano.
+    """
+    t = _normalizar(texto)
+    if not t:
+        return False
+    if t in ['cancelar', 'cancela', 'cancel', 'voltar', 'sair', 'desistir',
+             'desisto', 'parar', 'para', 'esquece', 'esquecer']:
+        return True
+    for termo in ['quero cancelar', 'pode cancelar', 'cancela isso',
+                  'cancela tudo', 'quero parar', 'deixa pra la', 'deixa pra lá',
+                  'desisti', 'quero desistir', 'esquece isso', 'nao quero mais',
+                  'não quero mais']:
+        if termo in t:
+            return True
+    return False
+
+
 def cliente_publico(cliente):
     """Retorna só os campos seguros do cliente para guardar no navegador."""
     if not cliente:
@@ -781,18 +802,20 @@ class MotorDialogo:
                 )
 
             # -------------------------------------------------------------------
-            # Escape universal — cancela qualquer fluxo ativo
+            # Escape universal — cancela qualquer fluxo ativo.
+            # Só dispara em pedidos CLAROS de cancelar (eh_cancelamento), nunca
+            # num "não" solto — assim "não, quero o gel" no meio do fluxo não
+            # cancela tudo por engano; quem trata isso é cada etapa.
             # -------------------------------------------------------------------
-            if mensagem_lower in ['cancelar', 'cancel', 'voltar', 'sair']:
-                if sessao.estado_fluxo:
-                    sessao.estado_fluxo = None
-                    sessao.dados_agendamento = {}
-                    sessao.dados_cadastro = {}
-                    return self.formatar_para_frontend(
-                        "Tá bom, sem problema! Cancelei aqui 😊\n\n"
-                        "Quando quiser, é só me chamar de novo! Posso te mostrar nossos serviços, "
-                        "marcar um horário ou te ajudar com sua conta."
-                    )
+            if sessao.estado_fluxo and eh_cancelamento(mensagem):
+                sessao.estado_fluxo = None
+                sessao.dados_agendamento = {}
+                sessao.dados_cadastro = {}
+                return self.formatar_para_frontend(
+                    "Tá bom, sem problema! Cancelei aqui 😊\n\n"
+                    "Quando quiser, é só me chamar de novo! Posso te mostrar nossos serviços, "
+                    "marcar um horário ou te ajudar com sua conta."
+                )
 
             # -------------------------------------------------------------------
             # Roteamento por estado — fluxo guiado (sem IA no meio dos fluxos)
@@ -926,12 +949,13 @@ class MotorDialogo:
                     resposta_texto = assistente_ia.gerar_resposta(
                         mensagem, contexto="despedida", cliente=sessao.cliente)
 
-                elif mensagem_lower in ['sim', 's', 'não', 'nao', 'n', 'no']:
-                    # Respostas soltas de sim/não fora de fluxo
+                elif eh_afirmacao(mensagem) or eh_negacao(mensagem):
+                    # Sim/não soltos fora de fluxo — não há o que confirmar ainda.
                     resposta_texto = (
-                        "Hmm, não entendi muito bem 😅\n\n"
-                        "Me fala o que você precisa — posso te ajudar com **serviços**, **agendar** um horário, "
-                        "ou fazer seu **cadastro**! 💅"
+                        "Ah, me perdi um pouquinho aqui 😅 Como não temos nada em "
+                        "andamento, não sei bem do que você falou!\n\n"
+                        "Me conta o que você precisa: posso te mostrar nossos **serviços**, "
+                        "**agendar** um horário ou fazer seu **cadastro** 💅"
                     )
 
                 else:
