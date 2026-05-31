@@ -78,6 +78,9 @@ def extrair_token(authorization: str | None) -> str:
 class ChatPayload(BaseModel):
     message: str
     user_id: str = "web-user"
+    # Login persistente: o frontend manda o cliente salvo no localStorage
+    # para o agente reconhecer o usuário sem precisar logar de novo.
+    cliente: dict | None = None
 
 
 class AdminLoginPayload(BaseModel):
@@ -144,11 +147,18 @@ def health():
 def chat(payload: ChatPayload):
     logger.info(f"[{payload.user_id}] >>> {payload.message}")
     try:
-        resposta = motor.processar_mensagem(payload.user_id, payload.message)
-        # resposta já vem no formato {id, text, from, time, status}
+        resposta = motor.processar_mensagem(payload.user_id, payload.message, payload.cliente)
+        # resposta já vem no formato {id, text, from, time, status, [cliente], [limpar_cliente]}
         texto = resposta.get("text", "") if isinstance(resposta, dict) else str(resposta)
         logger.info(f"[{payload.user_id}] <<< {texto[:80]}")
-        return {"reply": texto, "raw": resposta}
+        out = {"reply": texto, "raw": resposta}
+        # Login persistente: repassa o cliente (login/cadastro) ou sinal de logout
+        if isinstance(resposta, dict):
+            if resposta.get("cliente"):
+                out["cliente"] = resposta["cliente"]
+            if resposta.get("limpar_cliente"):
+                out["limpar_cliente"] = True
+        return out
     except Exception as e:
         logger.exception("Erro no /chat")
         return {"reply": f"⚠️ Erro interno: {e}"}

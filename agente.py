@@ -339,6 +339,142 @@ def encontrar_manicure_por_texto(texto, manicures):
                 return m
     return None
 
+# ---------------------------------------------------------------------------
+# INTERPRETAÇÃO DE ESCOLHAS POR FRASE (número, ordinal, data, dia da semana)
+# ---------------------------------------------------------------------------
+PALAVRAS_ORDINAIS = {
+    'primeiro': 1, 'primeira': 1,
+    'segundo': 2, 'segunda': 2,
+    'terceiro': 3, 'terceira': 3,
+    'quarto': 4, 'quarta': 4,
+    'quinto': 5, 'quinta': 5,
+    'sexto': 6, 'sexta': 6,
+    'setimo': 7, 'sétimo': 7, 'setima': 7, 'sétima': 7,
+    'oitavo': 8, 'oitava': 8,
+}
+
+DIAS_SEMANA_NOMES = {
+    'segunda-feira': 0, 'segunda': 0, 'seg': 0,
+    'terça-feira': 1, 'terca-feira': 1, 'terça': 1, 'terca': 1, 'ter': 1,
+    'quarta-feira': 2, 'quarta': 2, 'qua': 2,
+    'quinta-feira': 3, 'quinta': 3, 'qui': 3,
+    'sexta-feira': 4, 'sexta': 4, 'sex': 4,
+    'sábado': 5, 'sabado': 5, 'sáb': 5, 'sab': 5,
+    'domingo': 6, 'dom': 6,
+}
+
+
+def interpretar_indice(texto, n_max):
+    """Extrai um índice 1-based (1..n_max) de uma frase contendo um número
+    avulso, 'última' ou uma palavra ordinal (primeira, segunda...).
+    Retorna o índice ou None."""
+    t = texto.lower().strip()
+    m = re.search(r'\b(\d{1,2})\b', t)
+    if m:
+        idx = int(m.group(1))
+        if 1 <= idx <= n_max:
+            return idx
+    if re.search(r'\bultim|\búltim', t):
+        return n_max
+    for palavra, idx in PALAVRAS_ORDINAIS.items():
+        if re.search(r'\b' + re.escape(palavra) + r'\b', t) and 1 <= idx <= n_max:
+            return idx
+    return None
+
+
+def _parse_data_str(data_str):
+    """'DD/MM/YYYY' -> datetime, ou None se inválida."""
+    try:
+        dia, mes, ano = data_str.split('/')
+        return datetime.datetime(int(ano), int(mes), int(dia))
+    except Exception:
+        return None
+
+
+def encontrar_data_por_texto(texto, datas):
+    """Reconhece a data escolhida a partir de uma frase livre.
+    `datas`: lista de strings 'DD/MM/YYYY' na ordem em que foram exibidas.
+    Retorna a string da data escolhida ou None.
+
+    Prioridade: número/índice direto > data explícita (dd/mm) > 'dia N' /
+    dia do mês > relativo (hoje/amanhã) > dia da semana > ordinal por palavra.
+    """
+    if not datas:
+        return None
+    t = texto.lower().strip()
+    dts = [_parse_data_str(d) for d in datas]
+
+    # 1. Índice direto por número puro (mantém o comportamento "1".."5")
+    if t.isdigit():
+        idx = int(t)
+        if 1 <= idx <= len(datas):
+            return datas[idx - 1]
+
+    # 2. Data explícita: dd/mm, dd-mm, dd.mm (com ou sem ano)
+    m = re.search(r'\b(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?\b', t)
+    if m:
+        dd, mm = int(m.group(1)), int(m.group(2))
+        for d, dt in zip(datas, dts):
+            if dt and dt.day == dd and dt.month == mm:
+                return d
+
+    # 3. "dia N" ou número avulso que bate com o dia do mês de alguma data
+    m = re.search(r'\bdia\s+(\d{1,2})\b', t)
+    dia_alvo = int(m.group(1)) if m else None
+    if dia_alvo is None:
+        m2 = re.search(r'\b(\d{1,2})\b', t)
+        if m2:
+            n = int(m2.group(1))
+            if n > len(datas):  # números pequenos já tratados como índice
+                dia_alvo = n
+    if dia_alvo is not None:
+        for d, dt in zip(datas, dts):
+            if dt and dt.day == dia_alvo:
+                return d
+
+    # 4. Relativo: hoje / amanhã / depois de amanhã
+    hoje = datetime.datetime.now()
+    alvo_rel = None
+    if 'depois de amanha' in t or 'depois de amanhã' in t:
+        alvo_rel = hoje + datetime.timedelta(days=2)
+    elif 'amanha' in t or 'amanhã' in t:
+        alvo_rel = hoje + datetime.timedelta(days=1)
+    elif re.search(r'\bhoje\b', t):
+        alvo_rel = hoje
+    if alvo_rel is not None:
+        alvo_str = alvo_rel.strftime("%d/%m/%Y")
+        for d in datas:
+            if d == alvo_str:
+                return d
+
+    # 5. Dia da semana (sexta, sábado, terça...) — casa com a 1ª data daquele dia
+    for nome, wd in DIAS_SEMANA_NOMES.items():
+        if re.search(r'\b' + re.escape(nome) + r'\b', t):
+            for d, dt in zip(datas, dts):
+                if dt and dt.weekday() == wd:
+                    return d
+            break  # nome de dia reconhecido, mas sem essa data na lista
+
+    # 6. Ordinal por palavra (por último, pra não conflitar com dia da semana)
+    idx = interpretar_indice(t, len(datas))
+    if idx:
+        return datas[idx - 1]
+
+    return None
+
+
+def cliente_publico(cliente):
+    """Retorna só os campos seguros do cliente para guardar no navegador."""
+    if not cliente:
+        return None
+    return {
+        'id': cliente.get('id'),
+        'nome': cliente.get('nome'),
+        'email': cliente.get('email'),
+        'celular': cliente.get('celular'),
+    }
+
+
 def gerar_pix_copia_cola(valor, nome_servico):
     """Gera um código PIX copia-e-cola simulado."""
     # Código EMV simulado para demonstração
@@ -436,22 +572,52 @@ class MotorDialogo:
             self.sessoes[session_id] = SessaoCliente(session_id)
         return self.sessoes[session_id]
 
-    def formatar_para_frontend(self, texto):
-        """Formata a resposta no formato esperado pelo React (Index.tsx)."""
-        return {
+    def formatar_para_frontend(self, texto, cliente=None, limpar_cliente=False):
+        """Formata a resposta no formato esperado pelo React (Index.tsx).
+
+        `cliente`: se informado, vai junto pro frontend salvar no localStorage
+        (login persistente). `limpar_cliente`: sinaliza logout (limpa o storage).
+        """
+        payload = {
             "id":     int(time.time() * 1000),
             "text":   texto,
             "from":   "them",
             "time":   datetime.datetime.now().strftime("%I:%M %p"),
             "status": "delivered",
         }
+        if cliente:
+            payload["cliente"] = cliente_publico(cliente)
+        if limpar_cliente:
+            payload["limpar_cliente"] = True
+        return payload
 
-    def processar_mensagem(self, session_id, mensagem):
+    def processar_mensagem(self, session_id, mensagem, cliente_salvo=None):
         sessao = self.obter_sessao(session_id)
         mensagem_lower = mensagem.lower().strip()
         resposta_texto = ""
 
+        # Hidrata a sessão com o cliente salvo no navegador (login persistente
+        # via localStorage). Assim o login sobrevive a recarregar a página ou a
+        # reinício do servidor, sem precisar logar de novo.
+        if cliente_salvo and not sessao.cliente:
+            sessao.cliente = cliente_salvo
+        cliente_antes = sessao.cliente
+
         try:
+            # -------------------------------------------------------------------
+            # Logout — encerra a sessão e limpa o login salvo no navegador
+            # -------------------------------------------------------------------
+            if mensagem_lower in ['sair da conta', 'sair da minha conta', 'deslogar',
+                                  'logout', 'desconectar', 'trocar de conta', 'sair conta']:
+                sessao.cliente = None
+                sessao.estado_fluxo = None
+                sessao.dados_agendamento = {}
+                sessao.dados_cadastro = {}
+                return self.formatar_para_frontend(
+                    "Pronto, desconectei sua conta! 👋 Quando quiser voltar, é só fazer **login**.",
+                    limpar_cliente=True,
+                )
+
             # -------------------------------------------------------------------
             # Escape universal — cancela qualquer fluxo ativo
             # -------------------------------------------------------------------
@@ -615,6 +781,11 @@ class MotorDialogo:
             logger.error(f"Erro ao processar mensagem: {e}")
             resposta_texto = "Xiii, deu um probleminha aqui do meu lado 😅 Pode tentar de novo, por favor?"
 
+        # Sincroniza o login com o navegador: se o cliente acabou de logar/cadastrar,
+        # manda os dados pro frontend salvar no localStorage.
+        cliente_depois = sessao.cliente
+        if cliente_depois and cliente_depois != cliente_antes:
+            return self.formatar_para_frontend(resposta_texto, cliente=cliente_depois)
         return self.formatar_para_frontend(resposta_texto)
 
     # ---------------------------------------------------------------------------
@@ -722,20 +893,18 @@ class MotorDialogo:
     # --- AGENDAMENTO: PASSO 2 — Serviço ---
     def _proc_agendamento_data(self, sessao, mensagem):
         datas = sessao.dados_agendamento.get('lista_datas', [])
-        if mensagem.isdigit() and 1 <= int(mensagem) <= len(datas):
-            data_escolhida = datas[int(mensagem) - 1]
+        # Reconhece a data por número, data (03/06), dia da semana (sexta),
+        # "amanhã", "dia 30" ou ordinal ("a primeira") — não só pelo número.
+        data_escolhida = encontrar_data_por_texto(mensagem, datas)
+        if data_escolhida:
             # Validação: rejeitar Domingos e Segundas
-            try:
-                dia, mes, ano = data_escolhida.split('/')
-                dt = datetime.datetime(int(ano), int(mes), int(dia))
-                if dt.weekday() not in CONFIG_NEGOCIO['dias_trabalho']:
-                    nome_dia = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][dt.weekday()]
-                    return (
-                        f"Ops, essa data cai em **{nome_dia}** e a gente não funciona nesse dia 😅\n\n"
-                        f"A Lino Esmalteria abre de **Terça a Sábado**! Escolhe outra data da lista, por favor 💖"
-                    )
-            except Exception:
-                pass
+            dt = _parse_data_str(data_escolhida)
+            if dt and dt.weekday() not in CONFIG_NEGOCIO['dias_trabalho']:
+                nome_dia = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][dt.weekday()]
+                return (
+                    f"Ops, essa data cai em **{nome_dia}** e a gente não funciona nesse dia 😅\n\n"
+                    f"A Lino Esmalteria abre de **Terça a Sábado**! Escolhe outra data da lista, por favor 💖"
+                )
             sessao.dados_agendamento['data'] = data_escolhida
             sessao.estado_fluxo = "agendamento_servico"
             servs = obter_servicos()
@@ -744,7 +913,11 @@ class MotorDialogo:
             for i, s in enumerate(servs, 1):
                 resp += f"{i} - {s['nome']} (R$ {s['preco']:.2f})\n"
             return resp
-        return "Não entendi 😅 Me manda só o número da data que você prefere, tá?"
+        return (
+            "Não entendi qual data você quer 😅\n\n"
+            "Pode me mandar o **número** da opção, a **data** (ex: 03/06), o **dia da semana** "
+            "(ex: sexta) ou algo como \"amanhã\" 💕"
+        )
 
     # --- AGENDAMENTO: PASSO 2 — Serviço (aceita número OU texto/apelido) ---
     def _proc_agendamento_servico(self, sessao, mensagem):
@@ -756,8 +929,13 @@ class MotorDialogo:
         if msg.isdigit() and 1 <= int(msg) <= len(servs):
             servico_escolhido = servs[int(msg) - 1]
         else:
-            # Tenta por texto / fuzzy match
+            # Tenta por texto / apelido / fuzzy match
             servico_escolhido = encontrar_servico_por_texto(msg, servs)
+            # Por fim, tenta ordinal por frase ("a primeira", "opção 2")
+            if not servico_escolhido:
+                idx = interpretar_indice(msg, len(servs))
+                if idx:
+                    servico_escolhido = servs[idx - 1]
 
         if servico_escolhido:
             sessao.dados_agendamento['servico'] = servico_escolhido
