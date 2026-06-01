@@ -114,6 +114,9 @@ class AssistenteIA:
                                       'valor', 'quanto custa', 'tabela']
         self.intencoes_login      = ['login', 'entrar', 'logar', 'minha conta', 'ja tenho conta', 'já tenho conta']
         self.intencoes_cadastro   = ['cadastrar', 'cadastro', 'criar conta', 'nova conta', 'registrar', 'me cadastrar', 'quero me cadastrar', 'sou nova', 'primeira vez']
+        self.intencoes_encerrar   = ['finalizar', 'encerrar', 'terminar', 'encerrar conversa',
+                                     'encerrar atendimento', 'finalizar atendimento', 'pode encerrar',
+                                     'já terminei', 'ja terminei', 'é só isso', 'so isso']
 
         # Intenções do painel administrativo (desabilitado no chat público
         # — acesso exclusivo pelo painel admin com login)
@@ -818,6 +821,20 @@ class MotorDialogo:
                 )
 
             # -------------------------------------------------------------------
+            # Encerrar atendimento — funciona com ou sem fluxo ativo.
+            # Match exato pra não confundir com "quero finalizar meu agendamento".
+            # -------------------------------------------------------------------
+            if mensagem_lower in assistente_ia.intencoes_encerrar:
+                sessao.estado_fluxo = None
+                sessao.dados_agendamento = {}
+                sessao.dados_cadastro = {}
+                return self.formatar_para_frontend(
+                    "Tudo bem, encerrei nosso atendimento por aqui! 💖\n\n"
+                    "Foi um prazer te ajudar. Quando precisar, é só mandar um *oi* que eu te atendo de novo — "
+                    "posso mostrar **serviços**, fazer seu **cadastro** ou **agendar** um horário. Até logo! 🌸"
+                )
+
+            # -------------------------------------------------------------------
             # Roteamento por estado — fluxo guiado (sem IA no meio dos fluxos)
             # -------------------------------------------------------------------
             if sessao.estado_fluxo == "aguardando_identificacao":
@@ -871,6 +888,18 @@ class MotorDialogo:
             elif sessao.estado_fluxo == "cadastro_confirmacao":
                 resposta_texto = self._proc_cadastro_confirmacao(sessao, mensagem)
 
+            elif sessao.estado_fluxo == "cadastro_editar":
+                resposta_texto = self._proc_cadastro_editar(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "cadastro_editar_nome":
+                resposta_texto = self._proc_cadastro_editar_nome(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "cadastro_editar_email":
+                resposta_texto = self._proc_cadastro_editar_email(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "cadastro_editar_celular":
+                resposta_texto = self._proc_cadastro_editar_celular(sessao, mensagem)
+
             elif sessao.estado_fluxo == "agendamento_para_quem":
                 resposta_texto = self._proc_agendamento_para_quem(sessao, mensagem)
 
@@ -891,6 +920,21 @@ class MotorDialogo:
 
             elif sessao.estado_fluxo == "agendamento_confirmacao":
                 resposta_texto = self._proc_agendamento_confirmacao(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_editar":
+                resposta_texto = self._proc_agendamento_editar(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_editar_data":
+                resposta_texto = self._proc_agendamento_editar_data(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_editar_servico":
+                resposta_texto = self._proc_agendamento_editar_servico(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_editar_manicure":
+                resposta_texto = self._proc_agendamento_editar_manicure(sessao, mensagem)
+
+            elif sessao.estado_fluxo == "agendamento_editar_horario":
+                resposta_texto = self._proc_agendamento_editar_horario(sessao, mensagem)
 
             elif sessao.estado_fluxo == "agendamento_pagamento":
                 resposta_texto = self._proc_agendamento_pagamento(sessao, mensagem)
@@ -1176,26 +1220,30 @@ class MotorDialogo:
         horario_escolhido = encontrar_horario_por_texto(mensagem, horarios)
         if horario_escolhido:
             sessao.dados_agendamento['horario'] = horario_escolhido
-            sessao.estado_fluxo = "agendamento_confirmacao"
-            d = sessao.dados_agendamento
-            preco = d['servico']['preco']
-            sinal = preco * 0.4
-            sessao.dados_agendamento['sinal'] = sinal
-            nome_terceiro = d.get('agendado_para_nome')
-            linha_terceiro = f"👤 Agendado para: **{nome_terceiro}**\n" if nome_terceiro else ""
-            return (
-                f"Perfeito! Olha o resumo do seu agendamento 😊\n\n"
-                f"📅 Dia: **{d['data']}**\n"
-                f"🕐 Horário: **{d['horario']}**\n"
-                f"💅 Serviço: **{d['servico']['nome']}** (R$ {preco:.2f})\n"
-                f"👩 Profissional: **{d['manicure']['nome']}**\n"
-                f"{linha_terceiro}\n"
-                f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
-                f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
-            )
+            return self._mostrar_resumo_agendamento(sessao)
         return (
             "Não entendi qual horário você quer 😅\n\n"
             "Pode me mandar o **número** da opção ou o **horário** (ex: 09:00, 9h, às 14) 💕"
+        )
+
+    def _mostrar_resumo_agendamento(self, sessao):
+        """Monta o resumo do agendamento, recalcula o sinal e pede confirmação."""
+        sessao.estado_fluxo = "agendamento_confirmacao"
+        d = sessao.dados_agendamento
+        preco = d['servico']['preco']
+        sinal = preco * 0.4
+        sessao.dados_agendamento['sinal'] = sinal
+        nome_terceiro = d.get('agendado_para_nome')
+        linha_terceiro = f"👤 Agendado para: **{nome_terceiro}**\n" if nome_terceiro else ""
+        return (
+            f"Perfeito! Olha o resumo do seu agendamento 😊\n\n"
+            f"📅 Dia: **{d['data']}**\n"
+            f"🕐 Horário: **{d['horario']}**\n"
+            f"💅 Serviço: **{d['servico']['nome']}** (R$ {preco:.2f})\n"
+            f"👩 Profissional: **{d['manicure']['nome']}**\n"
+            f"{linha_terceiro}\n"
+            f"💰 Para garantir seu horário, pedimos um sinal de 40% — **R$ {sinal:.2f}**\n\n"
+            f"Tá tudo certo? Me fala **sim** pra continuar com o pagamento ou **não** se quiser mudar algo!"
         )
 
     # --- AGENDAMENTO: PASSO 5 — Confirmação → Gera PIX ---
@@ -1214,9 +1262,16 @@ class MotorDialogo:
                 f"Se quiser cancelar, é só falar **cancelar**."
             )
         elif eh_negacao(mensagem):
-            sessao.dados_agendamento = {}
-            sessao.estado_fluxo = None
-            return "Sem problema, cancelei! Quando quiser tentar de novo, é só me falar **agendar** 💖"
+            # Em vez de cancelar tudo, oferece escolher o que mudar.
+            sessao.estado_fluxo = "agendamento_editar"
+            return (
+                "Sem problema! O que você quer mudar? 😊\n\n"
+                "1 - Data\n"
+                "2 - Serviço\n"
+                "3 - Profissional\n"
+                "4 - Horário\n\n"
+                "Me manda o número (ou *cancelar* pra desistir)."
+            )
         else:
             # Resposta ambígua — NÃO cancela; pergunta de novo com gentileza.
             return (
@@ -1224,6 +1279,111 @@ class MotorDialogo:
                 "Posso confirmar esse agendamento? Me responde com **sim** pra seguir "
                 "com o pagamento, ou **não** se quiser mudar alguma coisa 💕"
             )
+
+    # --- AGENDAMENTO: edição de campo a partir do resumo ---
+    def _proc_agendamento_editar(self, sessao, mensagem):
+        msg = _normalizar(mensagem)
+        idx = interpretar_indice(msg, 4)
+        if msg in ['1', 'data'] or idx == 1:
+            sessao.estado_fluxo = "agendamento_editar_data"
+            datas = sessao.dados_agendamento.get('lista_datas', [])
+            resp = "Beleza! Qual data você prefere? 📅\n\n"
+            for i, d in enumerate(datas, 1):
+                resp += f"{i} - {d}\n"
+            resp += "\nÉ só me mandar o número!"
+            return resp
+        elif msg in ['2', 'servico', 'serviço'] or idx == 2:
+            sessao.estado_fluxo = "agendamento_editar_servico"
+            servs = sessao.dados_agendamento.get('lista_servicos', [])
+            resp = "Beleza! Qual serviço você quer fazer?\n\n"
+            for i, s in enumerate(servs, 1):
+                resp += f"{i} - {s['nome']} (R$ {s['preco']:.2f})\n"
+            resp += "\nPode mandar o número, o nome ou um apelido 😊"
+            return resp
+        elif msg in ['3', 'profissional', 'manicure'] or idx == 3:
+            sessao.estado_fluxo = "agendamento_editar_manicure"
+            manicures = sessao.dados_agendamento.get('lista_manicures', [])
+            resp = "Beleza! Com qual profissional você quer ser atendida?\n\n"
+            for i, m in enumerate(manicures, 1):
+                resp += f"{i} - {m['nome']}\n"
+            resp += "\nPode mandar o número ou o nome dela 😊"
+            return resp
+        elif msg in ['4', 'horario', 'horário', 'hora'] or idx == 4:
+            sessao.estado_fluxo = "agendamento_editar_horario"
+            horarios = sessao.dados_agendamento.get('lista_horarios', [])
+            resp = "Beleza! Qual horário fica melhor?\n\n"
+            for i, h in enumerate(horarios, 1):
+                resp += f"{i} - {h}\n"
+            resp += "\nÉ só me mandar o número!"
+            return resp
+        return (
+            "Não entendi 😅 Me manda o número do que você quer mudar:\n\n"
+            "1 - Data\n2 - Serviço\n3 - Profissional\n4 - Horário\n\n"
+            "(ou *cancelar* pra desistir)"
+        )
+
+    def _proc_agendamento_editar_data(self, sessao, mensagem):
+        datas = sessao.dados_agendamento.get('lista_datas', [])
+        data_escolhida = encontrar_data_por_texto(mensagem, datas)
+        if data_escolhida:
+            try:
+                dia, mes, ano = data_escolhida.split('/')
+                dt = datetime.datetime(int(ano), int(mes), int(dia))
+                if dt.weekday() not in CONFIG_NEGOCIO['dias_trabalho']:
+                    nome_dia = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][dt.weekday()]
+                    return (
+                        f"Ops, essa data cai em **{nome_dia}** e a gente não funciona nesse dia 😅\n\n"
+                        f"A Lino Esmalteria abre de **Terça a Sábado**! Escolhe outra data da lista, por favor 💖"
+                    )
+            except Exception:
+                pass
+            sessao.dados_agendamento['data'] = data_escolhida
+            return self._mostrar_resumo_agendamento(sessao)
+        return "Não entendi 😅 Me manda só o número da data que você prefere, tá?"
+
+    def _proc_agendamento_editar_servico(self, sessao, mensagem):
+        servs = sessao.dados_agendamento.get('lista_servicos', [])
+        msg = mensagem.strip()
+        servico_escolhido = None
+        if msg.isdigit() and 1 <= int(msg) <= len(servs):
+            servico_escolhido = servs[int(msg) - 1]
+        else:
+            servico_escolhido = encontrar_servico_por_texto(msg, servs)
+        if servico_escolhido:
+            sessao.dados_agendamento['servico'] = servico_escolhido
+            return self._mostrar_resumo_agendamento(sessao)
+        return (
+            "Hmm, não encontrei esse serviço 🤔\n\n"
+            "Pode me mandar o **número** da lista ou o **nome** do serviço?"
+        )
+
+    def _proc_agendamento_editar_manicure(self, sessao, mensagem):
+        manicures = sessao.dados_agendamento.get('lista_manicures', [])
+        msg = mensagem.strip()
+        manicure_escolhida = None
+        if msg.isdigit() and 1 <= int(msg) <= len(manicures):
+            manicure_escolhida = manicures[int(msg) - 1]
+        else:
+            manicure_escolhida = encontrar_manicure_por_texto(msg, manicures)
+            if not manicure_escolhida:
+                idx = interpretar_indice(msg, len(manicures))
+                if idx:
+                    manicure_escolhida = manicures[idx - 1]
+        if manicure_escolhida:
+            sessao.dados_agendamento['manicure'] = manicure_escolhida
+            return self._mostrar_resumo_agendamento(sessao)
+        return "Não encontrei essa profissional 😅 Me manda o número ou o nome dela, por favor!"
+
+    def _proc_agendamento_editar_horario(self, sessao, mensagem):
+        horarios = sessao.dados_agendamento.get('lista_horarios', [])
+        horario_escolhido = encontrar_horario_por_texto(mensagem, horarios)
+        if horario_escolhido:
+            sessao.dados_agendamento['horario'] = horario_escolhido
+            return self._mostrar_resumo_agendamento(sessao)
+        return (
+            "Não entendi qual horário você quer 😅\n\n"
+            "Pode me mandar o **número** da opção ou o **horário** (ex: 09:00, 9h, às 14) 💕"
+        )
 
     # --- AGENDAMENTO: PASSO 6 — Aguarda pagamento → Salva ---
     def _proc_agendamento_pagamento(self, sessao, mensagem):
@@ -1350,10 +1510,15 @@ class MotorDialogo:
                     logger.error(f"Erro ao verificar celular: {e}")
             sessao.dados_cadastro['celular'] = celular
 
+        return self._mostrar_resumo_cadastro(sessao)
+
+    def _mostrar_resumo_cadastro(self, sessao, prefixo=""):
+        """Monta o resumo do cadastro e pede confirmação."""
         sessao.estado_fluxo = "cadastro_confirmacao"
         d = sessao.dados_cadastro
         celular_exib = d.get('celular') or "não informado"
         return (
+            f"{prefixo}"
             f"Ótimo, deixa eu conferir se tá tudo certinho 😊\n\n"
             f"👤 Nome: {d['nome']}\n"
             f"📧 E-mail: {d['email']}\n"
@@ -1368,9 +1533,15 @@ class MotorDialogo:
             sessao.estado_fluxo = None
             return resultado
         elif eh_negacao(mensagem):
-            sessao.dados_cadastro = {}
-            sessao.estado_fluxo = None
-            return "Sem problema, cancelei! Se mudar de ideia, é só me falar **cadastrar** de novo 😊"
+            # Em vez de cancelar tudo, oferece escolher o que mudar.
+            sessao.estado_fluxo = "cadastro_editar"
+            return (
+                "Sem problema! O que você quer mudar? 😊\n\n"
+                "1 - Nome\n"
+                "2 - E-mail\n"
+                "3 - Celular\n\n"
+                "Me manda o número (ou *cancelar* pra desistir)."
+            )
         else:
             # Resposta ambígua — NÃO descarta o cadastro; confirma de novo.
             return (
@@ -1378,6 +1549,64 @@ class MotorDialogo:
                 "Os dados estão certinhos? Me fala **sim** pra eu finalizar seu cadastro "
                 "ou **não** se quiser corrigir algo 💕"
             )
+
+    # --- CADASTRO: edição de campo a partir do resumo ---
+    def _proc_cadastro_editar(self, sessao, mensagem):
+        msg = _normalizar(mensagem)
+        idx = interpretar_indice(msg, 3)
+        if msg in ['1', 'nome'] or idx == 1:
+            sessao.estado_fluxo = "cadastro_editar_nome"
+            return "Beleza! Me manda o novo **nome completo** 😊"
+        elif msg in ['2', 'email', 'e-mail'] or idx == 2:
+            sessao.estado_fluxo = "cadastro_editar_email"
+            return "Beleza! Me manda o novo **e-mail** (tipo nome@email.com)"
+        elif msg in ['3', 'celular', 'telefone'] or idx == 3:
+            sessao.estado_fluxo = "cadastro_editar_celular"
+            return "Beleza! Me manda o novo **celular** com DDD (tipo 11999999999) ou fala **pular**"
+        return (
+            "Não entendi 😅 Me manda o número do que você quer mudar:\n\n"
+            "1 - Nome\n2 - E-mail\n3 - Celular\n\n"
+            "(ou *cancelar* pra desistir)"
+        )
+
+    def _proc_cadastro_editar_nome(self, sessao, mensagem):
+        nome = mensagem.strip()
+        if len(nome) < 3:
+            return "Hmm, acho que faltou algo 😅 Me manda seu nome completo, por favor!"
+        sessao.dados_cadastro['nome'] = nome
+        return self._mostrar_resumo_cadastro(sessao, prefixo="Pronto, atualizei! ✅\n\n")
+
+    def _proc_cadastro_editar_email(self, sessao, mensagem):
+        email = mensagem.strip().lower()
+        if not validar_email(email):
+            return "Esse e-mail não parece certo 😅 Tenta de novo, tipo nome@email.com"
+        if SUPABASE_DISPONIVEL:
+            try:
+                res = supabase.table('clientes').select('id').eq('email', email).execute()
+                if res.data:
+                    return "Epa, esse e-mail já tá cadastrado! 😊 Tenta outro ou fala *cancelar*."
+            except Exception as e:
+                logger.error(f"Erro ao verificar email: {e}")
+        sessao.dados_cadastro['email'] = email
+        return self._mostrar_resumo_cadastro(sessao, prefixo="Pronto, atualizei! ✅\n\n")
+
+    def _proc_cadastro_editar_celular(self, sessao, mensagem):
+        if mensagem.strip().lower() == "pular":
+            sessao.dados_cadastro['celular'] = None
+        else:
+            raw = mensagem.strip()
+            if not validar_celular(raw):
+                return "Hmm, esse número não parece certo 😅 Manda só os números com DDD (tipo 11999999999) ou fala **pular**."
+            celular = normalizar_celular(raw)
+            if SUPABASE_DISPONIVEL:
+                try:
+                    res = supabase.table('clientes').select('id').eq('celular', celular).execute()
+                    if res.data:
+                        return "Esse celular já tá vinculado a outra conta! Tenta outro número ou fala **pular** 😊"
+                except Exception as e:
+                    logger.error(f"Erro ao verificar celular: {e}")
+            sessao.dados_cadastro['celular'] = celular
+        return self._mostrar_resumo_cadastro(sessao, prefixo="Pronto, atualizei! ✅\n\n")
 
     def _salvar_cadastro(self, sessao):
         """Salva o novo cliente no Supabase e faz login automático."""
