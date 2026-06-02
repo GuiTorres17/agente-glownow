@@ -1,5 +1,16 @@
 # Agente Lino Esmalteria 💅
 
+> ## ⚠️ Status: FORA DO AR (desativado em 01/06/2026)
+>
+> Toda a infraestrutura em nuvem foi **desativada para não gerar custos**. O código permanece neste repositório como documentação/portfólio. Veja a tabela e o passo a passo de reativação em [DOCUMENTACAO.md › Status](./DOCUMENTACAO.md#0-status-do-projeto).
+>
+> | Serviço | Estado |
+> |---|---|
+> | Banco de dados (Supabase — projeto `Facul`) | ⏸️ Pausado |
+> | Backend (Render — `glownow-api`) | 🔴 Suspender/deletar no painel do Render |
+> | Frontend (Vercel — `agente-glownow`) | 🔴 Pausar/deletar no painel da Vercel |
+> | IA (Google Gemini) | 💤 Free tier, sem uso enquanto a API estiver fora |
+
 Bem-vindo(a) ao repositório do **Agente Lino Esmalteria**, um assistente virtual inteligente criado para automatizar e profissionalizar o atendimento, agendamentos e a gestão da clínica de estética Maisa Lino Esmalteria.
 
 O agente utiliza Inteligência Artificial avançada para conversar com clientes de forma humana, natural e prestativa, integrando um frontend moderno e um backend robusto com banco de dados em nuvem.
@@ -9,7 +20,7 @@ O agente utiliza Inteligência Artificial avançada para conversar com clientes 
 ## 🌟 Principais Funcionalidades
 
 ### Para o Cliente (Interface do Chat)
-*   **Atendimento Humanizado:** Motor de IA com Google Gemini 1.5 Flash para uma conversa acolhedora e não-robótica.
+*   **Atendimento Humanizado:** Motor de IA com Google Gemini 2.5 Flash para uma conversa acolhedora e não-robótica.
 *   **Reconhecimento Inteligente (Fuzzy Logic):** Entende intenções e nomes de serviços mesmo com erros de digitação.
 *   **Cadastro Simplificado:** Fluxo guiado para novos clientes, identificação rápida via E-mail ou Celular.
 *   **Agendamento Completo:** Escolha de data, serviço, profissional e horário de forma iterativa.
@@ -38,7 +49,7 @@ Este projeto adota uma arquitetura Cliente-Servidor moderna, dividida entre Fron
 
 ### Backend (Python & FastAPI)
 *   **FastAPI:** Framework web rápido e eficiente para APIs RESTful.
-*   **Google GenAI SDK:** Integração direta com a API do **Google Gemini 1.5 Flash**.
+*   **Google GenAI SDK:** Integração direta com a API do **Google Gemini 2.5 Flash** (configurável via `GEMINI_MODEL`, com cadeia de fallback).
 *   **Supabase (PostgreSQL):** Banco de dados relacional em nuvem, utilizando o cliente Python do Supabase.
 *   **Fuzzywuzzy / Fuzzbook:** Algoritmos para correspondência aproximada de textos (Fuzzy Match).
 *   **Uvicorn:** Servidor ASGI para rodar a aplicação web Python.

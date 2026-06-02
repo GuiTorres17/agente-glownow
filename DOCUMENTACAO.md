@@ -4,6 +4,27 @@ Este documento detalha tudo o que foi desenvolvido até o momento para o assiste
 
 ---
 
+## 0. Status do Projeto
+
+> **⚠️ FORA DO AR — desativado em 01/06/2026 para não gerar custos.**
+>
+> A infraestrutura em nuvem foi desligada/pausada. O código e esta documentação permanecem no GitHub como referência/portfólio. Nenhum dado foi apagado — o banco está apenas **pausado** e pode ser restaurado.
+
+| Serviço | Estado | Ação tomada / a tomar |
+|---|---|---|
+| **Banco de dados** (Supabase, projeto `Facul` — `mjtztzkyxurmsouklqky`) | ⏸️ Pausado | Projeto pausado via API (reversível, sem perda de dados) |
+| **Backend** (Render, Web Service `glownow-api`) | 🔴 Suspender manualmente | Suspender ou deletar o serviço no painel do Render |
+| **Frontend** (Vercel, projeto `agente-glownow`) | 🔴 Remover manualmente | Pausar ou deletar o projeto no painel da Vercel |
+| **IA** (Google Gemini) | 💤 Sem uso | Free tier; não gera custo enquanto a API estiver fora |
+
+### Como reativar
+1. **Supabase**: restaurar o projeto `Facul` no painel (Project Settings → *Restore project*). Os dados voltam intactos.
+2. **Render**: recriar/reativar o Web Service apontando para o branch `main` (build via `requirements.txt`, start via `Procfile`) e reconfigurar as env vars `GEMINI_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY` (e `GEMINI_MODEL` se desejado).
+3. **Vercel**: reativar/re-deployar o projeto `agente-glownow` a partir do `main`, mantendo `VITE_AGENT_URL` apontando para a URL do Render.
+4. **Gemini**: garantir que `GEMINI_API_KEY` é válida (modelo padrão `gemini-2.5-flash`).
+
+---
+
 ## 1. Arquitetura Geral do Sistema
 
 O projeto adota uma arquitetura cliente-servidor moderna, separando claramente o frontend da interface de usuário e o backend que processa a lógica de negócio e as integrações de Inteligência Artificial.
@@ -11,7 +32,7 @@ O projeto adota uma arquitetura cliente-servidor moderna, separando claramente o
 *   **Frontend**: Desenvolvido em React com Vite e TypeScript, estilizado com Tailwind CSS e componentes da biblioteca Shadcn UI. Focado em oferecer uma interface de chat fluida, responsiva e moderna.
 *   **Backend**: Desenvolvido em Python utilizando o framework FastAPI. Responsável por gerenciar os endpoints de comunicação (`/chat`, `/servicos`, `/manicures`), controlar o estado da conversa e se comunicar com o banco de dados e a IA.
 *   **Banco de Dados**: Utilizamos o **Supabase** (PostgreSQL) para armazenamento de dados persistentes. O banco guarda informações cruciais como `clientes`, `agendamentos`, `servicos` e `manicures`.
-*   **Inteligência Artificial**: O núcleo conversacional utiliza a API do **Google Gemini 1.5 Flash**. A IA foi customizada através de *System Prompts* estritos para ser simpática, atenciosa e não alucinar com preços ou informações incorretas.
+*   **Inteligência Artificial**: O núcleo conversacional utiliza a API do **Google Gemini 2.5 Flash** (modelo padrão, configurável via `GEMINI_MODEL` e com cadeia de fallback). A IA foi customizada através de *System Prompts* estritos para ser simpática, atenciosa e não alucinar com preços ou informações incorretas.
 
 ---
 
@@ -172,14 +193,14 @@ O painel foi construído em React com um visual *dark premium* (glassmorphism vi
 *   **FastAPI**: Framework web moderno e de alta performance para a criação dos endpoints e lógica do agente.
 *   **Uvicorn**: Servidor ASGI leve usado para rodar a aplicação FastAPI.
 *   **Supabase (Python SDK)**: ORM e driver de conexão para interagir com o PostgreSQL armazenado na nuvem.
-*   **Google GenAI SDK** (`google-genai`): Interface de comunicação direta com o LLM Gemini 1.5 Flash.
+*   **Google GenAI SDK** (`google-genai`): Interface de comunicação direta com o LLM Gemini 2.5 Flash.
 *   **Pydantic**: Usado embutido no FastAPI para tipagem e validação de payloads JSON estritos na API.
 *   **Fuzzbook** / `fuzzywuzzy` / Algoritmos de Fuzzy Match: Usados na "inteligência" determinística do agente para identificar aproximações textuais dos nomes dos serviços e manicures.
 *   **Python-dotenv**: Gerenciamento seguro das credenciais via arquivo `.env`.
 
 ### 6.2. Serviços de Backend e Nuvem
 *   **Supabase**: Banco de dados PostgreSQL escalável integrado nativamente. Usado via MCP Servers e cliente Python.
-*   **Google Gemini API (1.5 Flash)**: O "cérebro" do assistente, garantindo respostas rápidas, precisas e humanizadas, com baixo risco de alucinação e altíssima compreensão de contexto (fuzzy logic natural).
+*   **Google Gemini API (2.5 Flash)**: O "cérebro" do assistente, garantindo respostas rápidas, precisas e humanizadas, com baixo risco de alucinação e altíssima compreensão de contexto (fuzzy logic natural).
 
 ---
 
@@ -391,4 +412,27 @@ Sistema de auditoria automática via triggers PostgreSQL.
 *   `src/pages/AdminPanel.tsx` — `sinal_confirmado` flag, toast de sucesso, feedback visual
 *   `Banco_PI.sql` — Schema v3.0 completo (6 tabelas, triggers, funções, view)
 *   `DOCUMENTACAO.md` — Documentação completa com arquitetura de segurança
+
+---
+
+### 01/06/2026 — Desativação da infraestrutura (projeto fora do ar)
+**Resumo**: Toda a infraestrutura em nuvem foi desligada/pausada para **não gerar custos**. O repositório passa a servir apenas como documentação/portfólio. Nenhum dado foi apagado.
+
+**Ações realizadas:**
+
+1.  **Supabase pausado**
+    *   O projeto de produção `Facul` (`mjtztzkyxurmsouklqky`) foi **pausado** (reversível, sem perda de dados). O projeto antigo `Faculdade PI` já estava inativo.
+
+2.  **Backend (Render) e Frontend (Vercel)**
+    *   Marcados para suspensão/remoção manual nos respectivos painéis (não há custo recorrente no free tier da Vercel; o foco é o Web Service do Render).
+
+3.  **Documentação atualizada**
+    *   Adicionada a seção **0. Status do Projeto** com a tabela de estado de cada serviço e o passo a passo de reativação.
+    *   Corrigidas referências desatualizadas ao modelo de IA: **Gemini 1.5 Flash → 2.5 Flash** (modelo realmente usado em produção, configurável via `GEMINI_MODEL` com fallback).
+
+**Como reativar:** ver seção [0. Status do Projeto](#0-status-do-projeto).
+
+**Arquivos modificados:**
+*   `README.md` — Banner de status "Fora do ar" + correção do modelo Gemini
+*   `DOCUMENTACAO.md` — Seção 0 (status/reativação), correção do modelo Gemini e este histórico
 
